@@ -1,8 +1,9 @@
 {
   "name": "mmm-shared",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Gemeinsame JavaScript-Helfer fuer meine MagicMirror-Module",
   "main": "mmm-shared.js",
+  "type": "commonjs",
   "private": true,
   "scripts": {
     "test": "node --test tests/*.test.js"
