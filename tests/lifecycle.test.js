@@ -1,7 +1,7 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
+const test = require("node:test");
+const assert = require("node:assert/strict");
 
-const shared = require('../mmm-shared');
+const shared = require("../mmm-shared");
 
 const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
@@ -89,8 +89,8 @@ function createSubject(overrides = {}) {
         lifecycle.markDataReceived();
       }
     },
-    onVisible: () => events.push('visible'),
-    onHidden: () => events.push('hidden'),
+    onVisible: () => events.push("visible"),
+    onHidden: () => events.push("hidden"),
     onSessionState: ({ state }) => events.push(`session:${state}`),
     ...overrides.lifecycle,
   });
@@ -115,11 +115,11 @@ function runCarousel({ harness, host, lifecycle }, { cycleMs, visibleMs, duratio
   }
 }
 
-test('clock helpers parse and compare quiet hour windows', () => {
-  assert.equal(shared.parseClockToMinutes('07:30'), 450);
+test("clock helpers parse and compare quiet hour windows", () => {
+  assert.equal(shared.parseClockToMinutes("07:30"), 450);
   assert.equal(shared.parseClockToMinutes(7.5), 450);
-  assert.equal(shared.parseClockToMinutes('24:00'), null);
-  assert.equal(shared.parseClockToMinutes('nonsense'), null);
+  assert.equal(shared.parseClockToMinutes("24:00"), null);
+  assert.equal(shared.parseClockToMinutes("nonsense"), null);
 
   const window = { from: 23 * 60, to: 6 * 60 };
   assert.equal(shared.isWithinQuietHours(new Date(2026, 0, 15, 23, 30), window), true);
@@ -131,7 +131,7 @@ test('clock helpers parse and compare quiet hour windows', () => {
   assert.equal(shared.isWithinQuietHours(new Date(2026, 0, 15, 20, 0), daytime), false);
 });
 
-test('msUntilAnchoredSlot lands on the interval grid of the anchor hour', () => {
+test("msUntilAnchoredSlot lands on the interval grid of the anchor hour", () => {
   const at = (hour, minute = 0) => new Date(2026, 0, 15, hour, minute, 0).getTime();
 
   // 6 h grid anchored at 07:00 -> 07:00, 13:00, 19:00, 01:00
@@ -141,11 +141,11 @@ test('msUntilAnchoredSlot lands on the interval grid of the anchor hour', () => 
   assert.equal(shared.msUntilAnchoredSlot(at(3), 6 * HOUR, 7), 4 * HOUR);
 });
 
-test('createLifecycle requires a module reference', () => {
+test("createLifecycle requires a module reference", () => {
   assert.throws(() => shared.createLifecycle({}), /requires a `module` reference/);
 });
 
-test('a Carousel rotation no longer drives the fetch rate', () => {
+test("a Carousel rotation no longer drives the fetch rate", () => {
   const subject = createSubject({ lifecycle: { backgroundRefresh: false } });
   subject.lifecycle.start();
 
@@ -154,11 +154,11 @@ test('a Carousel rotation no longer drives the fetch rate', () => {
   // 15 min interval over one hour: the initial fetch plus four refreshes.
   // Before the shared lifecycle this was one fetch per 50 s cycle (72/hour).
   assert.equal(subject.fetches.length, 5);
-  assert.equal(subject.fetches[0], 'start');
-  assert.ok(subject.fetches.slice(1).every((reason) => reason.includes('stale-data')));
+  assert.equal(subject.fetches[0], "start");
+  assert.ok(subject.fetches.slice(1).every((reason) => reason.includes("stale-data")));
 });
 
-test('doubling the Carousel transition interval does not change the fetch count', () => {
+test("doubling the Carousel transition interval does not change the fetch count", () => {
   const fast = createSubject({ lifecycle: { backgroundRefresh: false } });
   fast.lifecycle.start();
   runCarousel(fast, { cycleMs: 50 * 1000, visibleMs: 10 * 1000, durationMs: 4 * HOUR });
@@ -170,7 +170,7 @@ test('doubling the Carousel transition interval does not change the fetch count'
   assert.equal(fast.fetches.length, slow.fetches.length);
 });
 
-test('background refresh keeps the cadence while the module stays hidden', () => {
+test("background refresh keeps the cadence while the module stays hidden", () => {
   const subject = createSubject();
   subject.lifecycle.start();
   subject.host.hidden = true;
@@ -180,11 +180,11 @@ test('background refresh keeps the cadence while the module stays hidden', () =>
 
   // start + 4 background refreshes
   assert.equal(subject.fetches.length, 5);
-  assert.equal(subject.fetches.filter((reason) => reason === 'periodic').length, 4);
+  assert.equal(subject.fetches.filter((reason) => reason === "periodic").length, 4);
   assert.equal(subject.lifecycle.isSuspended(), true);
 });
 
-test('background refresh keeps data warm so resume renders without a fetch', () => {
+test("background refresh keeps data warm so resume renders without a fetch", () => {
   const subject = createSubject();
   subject.lifecycle.start();
   subject.host.hidden = true;
@@ -195,20 +195,20 @@ test('background refresh keeps data warm so resume renders without a fetch', () 
   subject.host.hidden = false;
   subject.lifecycle.resume();
 
-  assert.equal(subject.fetches.length, before, 'resume must not fetch when data is fresh');
+  assert.equal(subject.fetches.length, before, "resume must not fetch when data is fresh");
 });
 
-test('resume fetches when data is missing or stale, and skips when fresh', () => {
+test("resume fetches when data is missing or stale, and skips when fresh", () => {
   const subject = createSubject({ lifecycle: { backgroundRefresh: false } });
   subject.lifecycle.start();
-  assert.deepEqual(subject.fetches, ['start']);
+  assert.deepEqual(subject.fetches, ["start"]);
 
   subject.host.hidden = true;
   subject.lifecycle.suspend();
   subject.harness.advance(MINUTE);
   subject.host.hidden = false;
   subject.lifecycle.resume();
-  assert.equal(subject.fetches.length, 1, 'fresh data must not trigger a fetch');
+  assert.equal(subject.fetches.length, 1, "fresh data must not trigger a fetch");
 
   subject.host.hidden = true;
   subject.lifecycle.suspend();
@@ -216,10 +216,10 @@ test('resume fetches when data is missing or stale, and skips when fresh', () =>
   subject.host.hidden = false;
   subject.lifecycle.resume();
   assert.equal(subject.fetches.length, 2);
-  assert.equal(subject.fetches[1], 'resume-stale-data');
+  assert.equal(subject.fetches[1], "resume-stale-data");
 });
 
-test('a module that never received data retries on resume, but rate limited', () => {
+test("a module that never received data retries on resume, but rate limited", () => {
   const subject = createSubject({
     answerFetch: false,
     lifecycle: { backgroundRefresh: false, retryInterval: 60 * 1000 },
@@ -234,14 +234,14 @@ test('a module that never received data retries on resume, but rate limited', ()
   };
 
   hideShow();
-  assert.deepEqual(subject.fetches, ['start'], 'no retry inside the minimum spacing');
+  assert.deepEqual(subject.fetches, ["start"], "no retry inside the minimum spacing");
 
   subject.harness.advance(90 * 1000);
   hideShow();
-  assert.deepEqual(subject.fetches, ['start', 'resume-no-data']);
+  assert.deepEqual(subject.fetches, ["start", "resume-no-data"]);
 });
 
-test('a failing backend backs off exponentially instead of retrying per cycle', () => {
+test("a failing backend backs off exponentially instead of retrying per cycle", () => {
   const subject = createSubject({
     answerFetch: false,
     lifecycle: { backgroundRefresh: false, retryInterval: 60 * 1000 },
@@ -256,7 +256,7 @@ test('a failing backend backs off exponentially instead of retrying per cycle', 
   assert.ok(subject.fetches.length >= 4, `expected retries to keep happening, got ${subject.fetches.length}`);
 });
 
-test('successful data resets the backoff', () => {
+test("successful data resets the backoff", () => {
   const subject = createSubject({ answerFetch: false });
   subject.lifecycle.start();
   subject.lifecycle.markFetchFailed();
@@ -269,7 +269,7 @@ test('successful data resets the backoff', () => {
   assert.equal(state.retryNotBefore, 0);
 });
 
-test('repeated suspend and resume calls stay side-effect free', () => {
+test("repeated suspend and resume calls stay side-effect free", () => {
   const subject = createSubject();
   subject.lifecycle.start();
 
@@ -282,16 +282,16 @@ test('repeated suspend and resume calls stay side-effect free', () => {
   subject.lifecycle.resume();
 
   assert.deepEqual(subject.events, [
-    'session:active',
-    'visible',
-    'hidden',
-    'session:paused',
-    'session:active',
-    'visible',
+    "session:active",
+    "visible",
+    "hidden",
+    "session:paused",
+    "session:active",
+    "visible",
   ]);
 });
 
-test('resume while the core still reports hidden keeps the module paused', () => {
+test("resume while the core still reports hidden keeps the module paused", () => {
   const subject = createSubject();
   subject.lifecycle.start();
   subject.host.hidden = true;
@@ -304,7 +304,7 @@ test('resume while the core still reports hidden keeps the module paused', () =>
   assert.equal(subject.lifecycle.getState().paused, true);
 });
 
-test('data.hidden alone is enough to count as suspended', () => {
+test("data.hidden alone is enough to count as suspended", () => {
   const subject = createSubject();
   subject.lifecycle.start();
   subject.host.data.hidden = true;
@@ -312,7 +312,7 @@ test('data.hidden alone is enough to count as suspended', () => {
   assert.equal(subject.lifecycle.isSuspended(), true);
 });
 
-test('a suspend between arming and firing cancels the timer fetch', () => {
+test("a suspend between arming and firing cancels the timer fetch", () => {
   const subject = createSubject({ lifecycle: { backgroundRefresh: false } });
   subject.lifecycle.start();
 
@@ -320,10 +320,10 @@ test('a suspend between arming and firing cancels the timer fetch', () => {
   subject.host.hidden = true;
   subject.harness.advance(20 * MINUTE);
 
-  assert.deepEqual(subject.fetches, ['start']);
+  assert.deepEqual(subject.fetches, ["start"]);
 });
 
-test('deferred init retries while hidden and gives up after the limit', () => {
+test("deferred init retries while hidden and gives up after the limit", () => {
   const harness = createHarness();
   const host = createModuleStub();
   host.hidden = true;
@@ -350,19 +350,19 @@ test('deferred init retries while hidden and gives up after the limit', () => {
   });
 
   lifecycle.start();
-  assert.deepEqual(runs, [], 'must not initialize while hidden');
+  assert.deepEqual(runs, [], "must not initialize while hidden");
 
   harness.advance(10 * 1000);
-  assert.deepEqual(runs, [], 'retries must stop after maxAttempts');
+  assert.deepEqual(runs, [], "retries must stop after maxAttempts");
   assert.equal(lifecycle.getState().deferredInitAttempts, 3);
 
   host.hidden = false;
   lifecycle.resume();
   assert.equal(runs.length, 1);
-  assert.equal(runs[0], 'resume-init');
+  assert.equal(runs[0], "resume-init");
 });
 
-test('deferred init runs from the retry timer as soon as the module becomes visible', () => {
+test("deferred init runs from the retry timer as soon as the module becomes visible", () => {
   const harness = createHarness();
   const host = createModuleStub();
   host.hidden = true;
@@ -380,7 +380,7 @@ test('deferred init runs from the retry timer as soon as the module becomes visi
     deferredInit: {
       run: () => {
         initialized = true;
-        runs.push('run');
+        runs.push("run");
       },
       isPending: () => !initialized,
       intervalMs: 1000,
@@ -396,7 +396,7 @@ test('deferred init runs from the retry timer as soon as the module becomes visi
   assert.equal(runs.length, 1);
 });
 
-test('the day change hook fires across a suspend', () => {
+test("the day change hook fires across a suspend", () => {
   const harness = createHarness(new Date(2026, 0, 15, 23, 30, 0).getTime());
   const host = createModuleStub();
   const dayChanges = [];
@@ -418,11 +418,11 @@ test('the day change hook fires across a suspend', () => {
   lifecycle.resume();
 
   assert.equal(dayChanges.length, 1);
-  assert.equal(dayChanges[0].previous, '2026-01-15');
-  assert.equal(dayChanges[0].current, '2026-01-16');
+  assert.equal(dayChanges[0].previous, "2026-01-15");
+  assert.equal(dayChanges[0].current, "2026-01-16");
 });
 
-test('quiet hours suppress periodic fetches and resume right afterwards', () => {
+test("quiet hours suppress periodic fetches and resume right afterwards", () => {
   const harness = createHarness(new Date(2026, 0, 15, 22, 0, 0).getTime());
   const host = createModuleStub();
   const fetches = [];
@@ -431,7 +431,7 @@ test('quiet hours suppress periodic fetches and resume right afterwards', () => 
     module: host,
     updateInterval: 30 * MINUTE,
     jitterRatio: 0,
-    quietHours: { from: '23:00', to: '06:00' },
+    quietHours: { from: "23:00", to: "06:00" },
     now: harness.now,
     timers: harness.timers,
     onFetch: (context) => {
@@ -444,14 +444,14 @@ test('quiet hours suppress periodic fetches and resume right afterwards', () => 
   harness.advance(10 * HOUR);
 
   const nightFetches = fetches.filter(({ at }) => at >= 23 || at < 6);
-  assert.equal(nightFetches.length, 0, 'no polling during quiet hours');
+  assert.equal(nightFetches.length, 0, "no polling during quiet hours");
   assert.ok(
     fetches.some(({ at }) => at === 6),
-    'the first fetch after quiet hours must happen promptly'
+    "the first fetch after quiet hours must happen promptly",
   );
 });
 
-test('quiet hours never block the very first fetch', () => {
+test("quiet hours never block the very first fetch", () => {
   const harness = createHarness(new Date(2026, 0, 15, 2, 0, 0).getTime());
   const host = createModuleStub();
   const fetches = [];
@@ -459,17 +459,17 @@ test('quiet hours never block the very first fetch', () => {
   const lifecycle = shared.createLifecycle({
     module: host,
     updateInterval: 30 * MINUTE,
-    quietHours: { from: '23:00', to: '06:00' },
+    quietHours: { from: "23:00", to: "06:00" },
     now: harness.now,
     timers: harness.timers,
     onFetch: (context) => fetches.push(context.reason),
   });
 
   lifecycle.start();
-  assert.deepEqual(fetches, ['start']);
+  assert.deepEqual(fetches, ["start"]);
 });
 
-test('jitter spreads the periodic timer around the configured interval', () => {
+test("jitter spreads the periodic timer around the configured interval", () => {
   const delays = [];
   const harness = createHarness();
   const host = createModuleStub();
@@ -492,10 +492,10 @@ test('jitter spreads the periodic timer around the configured interval', () => {
   });
 
   lifecycle.start();
-  assert.equal(delays[0], 9 * MINUTE, 'random()=0 means the lower jitter bound');
+  assert.equal(delays[0], 9 * MINUTE, "random()=0 means the lower jitter bound");
 });
 
-test('render() defers work while hidden and replays it on resume', () => {
+test("render() defers work while hidden and replays it on resume", () => {
   const subject = createSubject();
   subject.lifecycle.start();
 
@@ -505,14 +505,14 @@ test('render() defers work while hidden and replays it on resume', () => {
   subject.host.hidden = true;
   subject.lifecycle.suspend();
   assert.equal(subject.lifecycle.render(1000), false);
-  assert.deepEqual(subject.host.renders, [500], 'no DOM build while hidden');
+  assert.deepEqual(subject.host.renders, [500], "no DOM build while hidden");
 
   subject.host.hidden = false;
   subject.lifecycle.resume();
   assert.deepEqual(subject.host.renders, [500, 1000]);
 });
 
-test('the visual tick runs only while the module is visible', () => {
+test("the visual tick runs only while the module is visible", () => {
   const harness = createHarness();
   const host = createModuleStub();
   let ticks = 0;
@@ -536,7 +536,7 @@ test('the visual tick runs only while the module is visible', () => {
   host.hidden = true;
   lifecycle.suspend();
   harness.advance(10 * MINUTE);
-  assert.equal(ticks, 4, 'no visual work while hidden');
+  assert.equal(ticks, 4, "no visual work while hidden");
 
   host.hidden = false;
   lifecycle.resume();
@@ -546,7 +546,7 @@ test('the visual tick runs only while the module is visible', () => {
   assert.equal(ticks, 7);
 });
 
-test('the visual tick survives a Carousel cycle shorter than its own interval', () => {
+test("the visual tick survives a Carousel cycle shorter than its own interval", () => {
   const harness = createHarness();
   const host = createModuleStub();
   let ticks = 0;
@@ -584,7 +584,7 @@ test('the visual tick survives a Carousel cycle shorter than its own interval', 
   assert.equal(ticks, 4);
 });
 
-test('a visual tick that came due while hidden fires immediately on resume', () => {
+test("a visual tick that came due while hidden fires immediately on resume", () => {
   const harness = createHarness();
   const host = createModuleStub();
   let ticks = 0;
@@ -605,7 +605,7 @@ test('a visual tick that came due while hidden fires immediately on resume', () 
   host.hidden = true;
   lifecycle.suspend();
   harness.advance(5 * MINUTE);
-  assert.equal(ticks, 0, 'no visual work while hidden');
+  assert.equal(ticks, 0, "no visual work while hidden");
 
   host.hidden = false;
   lifecycle.resume();
@@ -613,7 +613,7 @@ test('a visual tick that came due while hidden fires immediately on resume', () 
   assert.equal(ticks, 1);
 });
 
-test('stop() clears every timer it owns', () => {
+test("stop() clears every timer it owns", () => {
   const subject = createSubject({
     lifecycle: { visibleTickInterval: 1000, onVisibleTick: () => {} },
   });
@@ -624,7 +624,7 @@ test('stop() clears every timer it owns', () => {
   assert.equal(subject.harness.pendingTimers(), 0);
 });
 
-test('the update interval is clamped to minUpdateInterval', () => {
+test("the update interval is clamped to minUpdateInterval", () => {
   const subject = createSubject({
     lifecycle: { updateInterval: 10, minUpdateInterval: 30 * 1000 },
   });
@@ -632,7 +632,7 @@ test('the update interval is clamped to minUpdateInterval', () => {
   assert.equal(subject.lifecycle.getState().updateInterval, 30 * 1000);
 });
 
-test('requestFetch(force) bypasses quiet hours and the hidden guard', () => {
+test("requestFetch(force) bypasses quiet hours and the hidden guard", () => {
   const harness = createHarness(new Date(2026, 0, 15, 2, 0, 0).getTime());
   const host = createModuleStub();
   const fetches = [];
@@ -641,7 +641,7 @@ test('requestFetch(force) bypasses quiet hours and the hidden guard', () => {
     module: host,
     updateInterval: 30 * MINUTE,
     backgroundRefresh: false,
-    quietHours: { from: '23:00', to: '06:00' },
+    quietHours: { from: "23:00", to: "06:00" },
     now: harness.now,
     timers: harness.timers,
     onFetch: (context) => {
@@ -654,20 +654,73 @@ test('requestFetch(force) bypasses quiet hours and the hidden guard', () => {
   host.hidden = true;
   lifecycle.suspend();
 
-  assert.equal(lifecycle.requestFetch('user-action'), false);
-  assert.equal(lifecycle.requestFetch('user-action', { force: true }), true);
-  assert.deepEqual(fetches, ['start', 'user-action']);
+  assert.equal(lifecycle.requestFetch("user-action"), false);
+  assert.equal(lifecycle.requestFetch("user-action", { force: true }), true);
+  assert.deepEqual(fetches, ["start", "user-action"]);
 });
 
-test('a throwing callback does not break the lifecycle', () => {
+test("a throwing callback does not break the lifecycle", () => {
   const subject = createSubject({
     lifecycle: {
       onFetch: () => {
-        throw new Error('boom');
+        throw new Error("boom");
       },
     },
   });
 
   assert.doesNotThrow(() => subject.lifecycle.start());
   assert.equal(subject.lifecycle.getState().started, true);
+});
+
+test("a failed fetch is retried once the backoff has passed, not at the next interval", () => {
+  const subject = createSubject({
+    answerFetch: false,
+    lifecycle: { updateInterval: 6 * HOUR, retryInterval: MINUTE },
+  });
+  subject.lifecycle.start();
+  assert.deepEqual(subject.fetches, ["start"]);
+
+  subject.lifecycle.markFetchFailed();
+  assert.equal(subject.lifecycle.getState().retryTimerArmed, true);
+  subject.harness.advance(MINUTE);
+  assert.deepEqual(subject.fetches, ["start", "retry"]);
+
+  // Still failing: the next retry waits twice as long.
+  subject.lifecycle.markFetchFailed();
+  subject.harness.advance(MINUTE);
+  assert.equal(subject.fetches.length, 2);
+  subject.harness.advance(MINUTE);
+  assert.deepEqual(subject.fetches, ["start", "retry", "retry"]);
+});
+
+test("fresh data cancels a pending retry", () => {
+  const subject = createSubject({
+    answerFetch: false,
+    lifecycle: { updateInterval: 6 * HOUR, retryInterval: MINUTE },
+  });
+  subject.lifecycle.start();
+  subject.lifecycle.markFetchFailed();
+  subject.lifecycle.markDataReceived();
+
+  assert.equal(subject.lifecycle.getState().retryTimerArmed, false);
+  subject.harness.advance(10 * MINUTE);
+  assert.deepEqual(subject.fetches, ["start"]);
+});
+
+test("a lifecycle without onFetch never schedules a retry", () => {
+  const harness = createHarness();
+  const lifecycle = shared.createLifecycle({ module: createModuleStub(), timers: harness.timers, now: harness.now });
+  lifecycle.start();
+  lifecycle.markFetchFailed();
+  assert.equal(lifecycle.getState().retryTimerArmed, false);
+  lifecycle.stop();
+});
+
+test("stableStringify ignores key order, keeps array order", () => {
+  assert.equal(
+    shared.stableStringify({ b: 1, a: { d: [2, 1], c: null } }),
+    shared.stableStringify({ a: { c: null, d: [2, 1] }, b: 1 }),
+  );
+  assert.notEqual(shared.stableStringify([1, 2]), shared.stableStringify([2, 1]));
+  assert.equal(shared.stableStringify(undefined), undefined);
 });

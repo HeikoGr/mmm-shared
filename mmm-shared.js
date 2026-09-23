@@ -1,12 +1,12 @@
 (function initMMModuleShared(root, factory) {
   const api = factory();
 
-  if (typeof module === 'object' && module.exports) {
+  if (typeof module === "object" && module.exports) {
     module.exports = api;
   }
 
   root.MMModuleShared = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function createMMModuleShared() {
+})(typeof globalThis !== "undefined" ? globalThis : this, function createMMModuleShared() {
   const LEVELS = {
     none: -1,
     error: 0,
@@ -15,24 +15,24 @@
     debug: 3,
   };
 
-  function normalizeLevel(level, fallback = 'info') {
+  function normalizeLevel(level, fallback = "info") {
     return Object.hasOwn(LEVELS, level) ? level : fallback;
   }
 
   function sanitizeForLogging(value, redactedKeys) {
-    if (!value || typeof value !== 'object') {
+    if (!value || typeof value !== "object") {
       return value;
     }
 
     const seen = new WeakSet();
 
     function cloneAndRedact(input) {
-      if (!input || typeof input !== 'object') {
+      if (!input || typeof input !== "object") {
         return input;
       }
 
       if (seen.has(input)) {
-        return '[Circular]';
+        return "[Circular]";
       }
       seen.add(input);
 
@@ -44,7 +44,7 @@
       for (const [key, nested] of Object.entries(input)) {
         const lowered = String(key).toLowerCase();
         if (redactedKeys.some((token) => lowered.includes(token))) {
-          output[key] = '***redacted***';
+          output[key] = "***redacted***";
           continue;
         }
         output[key] = cloneAndRedact(nested);
@@ -56,27 +56,60 @@
     return cloneAndRedact(value);
   }
 
+  /**
+   * MagicMirror's Log: window.Log in the browser, require("logger") in a
+   * node_helper. It carries the global config.logLevel. Outside MagicMirror
+   * (tests, scripts) there is none, and console takes its place.
+   */
+  function resolveMagicMirrorLog() {
+    const candidates = [globalThis.Log];
+    if (typeof module === "object" && typeof require === "function") {
+      try {
+        candidates.push(require("logger"));
+      } catch {
+        // Not running inside MagicMirror.
+      }
+    }
+    return (
+      candidates.find((log) => log && ["debug", "info", "warn", "error"].every((m) => typeof log[m] === "function")) ||
+      console
+    );
+  }
+
+  /**
+   * Logger on top of MagicMirror's Log, so the global config.logLevel decides
+   * what is written. getLevel() is the module's own logLevel: unset means "the
+   * global level alone"; a level narrows it further ("none" silences the module).
+   * It cannot widen it - what the global level switches off stays off.
+   *
+   * @param {object} [options]
+   * @param {object} [options.consoleRef] - Output sink; defaults to MagicMirror's Log
+   */
   function createLogger({
     moduleName,
     identifier,
-    getLevel = () => 'info',
+    getLevel = () => undefined,
     structured = true,
     redact = true,
-    redactedKeys = ['password', 'token', 'apikey', 'secret', 'qrcode', 'refreshtoken'],
-    consoleRef = console,
+    redactedKeys = ["password", "token", "apikey", "secret", "qrcode", "refreshtoken"],
+    consoleRef,
   } = {}) {
+    let sink = consoleRef;
+
     function write(level, message, context) {
-      const configured = normalizeLevel(typeof getLevel === 'function' ? getLevel() : getLevel, 'info');
-      const current = normalizeLevel(level, 'info');
-      if (LEVELS[current] > LEVELS[configured]) {
+      const own = String((typeof getLevel === "function" ? getLevel() : getLevel) || "").toLowerCase();
+      const current = normalizeLevel(level, "info");
+      if (Object.hasOwn(LEVELS, own) && LEVELS[current] > LEVELS[own]) {
         return;
       }
 
-      const method = current === 'debug' ? 'debug' : current;
+      // Resolved on first use: MagicMirror sets up Log before any module logs.
+      sink ??= resolveMagicMirrorLog();
+      const method = current;
       const outputContext = redact ? sanitizeForLogging(context, redactedKeys) : context;
 
       if (structured) {
-        consoleRef[method]({
+        sink[method]({
           ts: Date.now(),
           level: current,
           module: moduleName,
@@ -87,19 +120,19 @@
         return;
       }
 
-      const prefix = `[${moduleName}${identifier ? `:${identifier}` : ''}]`;
+      const prefix = `[${moduleName}${identifier ? `:${identifier}` : ""}]`;
       if (outputContext === undefined) {
-        consoleRef[method](prefix, message);
+        sink[method](prefix, message);
         return;
       }
-      consoleRef[method](prefix, message, outputContext);
+      sink[method](prefix, message, outputContext);
     }
 
     return {
-      debug: (message, context) => write('debug', message, context),
-      info: (message, context) => write('info', message, context),
-      warn: (message, context) => write('warn', message, context),
-      error: (message, context) => write('error', message, context),
+      debug: (message, context) => write("debug", message, context),
+      info: (message, context) => write("info", message, context),
+      warn: (message, context) => write("warn", message, context),
+      error: (message, context) => write("error", message, context),
       child(extraIdentifier) {
         return createLogger({
           moduleName,
@@ -108,7 +141,7 @@
           structured,
           redact,
           redactedKeys,
-          consoleRef,
+          consoleRef: sink,
         });
       },
     };
@@ -130,19 +163,19 @@
   }
 
   function createModuleContext(moduleName, identifier, options = {}) {
-    const instanceId = options.instanceId || identifier || 'default';
+    const instanceId = options.instanceId || identifier || "default";
     const featureFlags = {
-      logLevel: options.logLevel || 'info',
+      logLevel: options.logLevel || null,
       logStructured: options.logStructured !== false,
       logRedaction: options.logRedaction !== false,
       strictValidation: options.strictValidation === true,
       allowLegacyKeys: options.allowLegacyKeys === true,
-      multiInstanceMode: options.multiInstanceMode || 'auto',
+      multiInstanceMode: options.multiInstanceMode || "auto",
     };
 
     return {
       moduleName,
-      identifier: identifier || 'default',
+      identifier: identifier || "default",
       instanceId,
       featureFlags,
       now: () => Date.now(),
@@ -152,8 +185,8 @@
 
   function createEnvelope(input) {
     return {
-      identifier: input.identifier || 'default',
-      instanceId: input.instanceId || input.identifier || 'default',
+      identifier: input.identifier || "default",
+      instanceId: input.instanceId || input.identifier || "default",
       requestId: input.requestId || generateRequestId(),
       ts: input.ts || Date.now(),
       action: input.action,
@@ -187,10 +220,10 @@
           createEnvelope({
             identifier,
             instanceId: instanceId || identifier,
-            action: 'CONFIG',
+            action: "CONFIG",
             ok: true,
             data: config,
-          })
+          }),
         );
       },
       sendLifecycle(state) {
@@ -202,7 +235,7 @@
             action: state,
             ok: true,
             data: null,
-          })
+          }),
         );
       },
     };
@@ -224,7 +257,7 @@
             ok: true,
             data,
             meta,
-          })
+          }),
         );
       },
       sendError(requestEnvelope, error, meta = {}) {
@@ -239,7 +272,7 @@
             data: null,
             error,
             meta,
-          })
+          }),
         );
       },
     };
@@ -247,12 +280,12 @@
 
   function createErrorFactory() {
     return {
-      createError(code, message, details = {}, retryable = false, severity = 'error') {
+      createError(code, message, details = {}, retryable = false, severity = "error") {
         return { code, message, details, retryable, severity };
       },
       fromException(error, context = {}) {
         const message = error instanceof Error ? error.message : String(error);
-        const code = context.code || 'UNKNOWN_ERROR';
+        const code = context.code || "UNKNOWN_ERROR";
         return {
           code,
           message,
@@ -261,7 +294,7 @@
             originalName: error instanceof Error ? error.name : typeof error,
           },
           retryable: context.retryable === true,
-          severity: context.severity || 'error',
+          severity: context.severity || "error",
         };
       },
     };
@@ -270,15 +303,15 @@
   function createValidator({ schema = {}, defaults = {}, strictValidation = false } = {}) {
     function validateValue(path, value, rule, errors) {
       const expected = rule.type;
-      const actual = Array.isArray(value) ? 'array' : typeof value;
+      const actual = Array.isArray(value) ? "array" : typeof value;
       if (expected && expected !== actual) {
         errors.push(`${path} must be ${expected}, got ${actual}`);
         return;
       }
       if (rule.enum && !rule.enum.includes(value)) {
-        errors.push(`${path} must be one of ${rule.enum.join(', ')}`);
+        errors.push(`${path} must be one of ${rule.enum.join(", ")}`);
       }
-      if (expected === 'number') {
+      if (expected === "number") {
         if (rule.min !== undefined && value < rule.min) {
           errors.push(`${path} must be >= ${rule.min}`);
         }
@@ -286,7 +319,7 @@
           errors.push(`${path} must be <= ${rule.max}`);
         }
       }
-      if (rule.schema && expected === 'object') {
+      if (rule.schema && expected === "object") {
         for (const [nestedKey, nestedRule] of Object.entries(rule.schema)) {
           const nestedValue = value ? value[nestedKey] : undefined;
           if (nestedRule.required && nestedValue === undefined) {
@@ -348,12 +381,12 @@
    * @returns {number|null} Minutes since midnight, or null when unparsable
    */
   function parseClockToMinutes(value) {
-    if (typeof value === 'number' && Number.isFinite(value)) {
+    if (typeof value === "number" && Number.isFinite(value)) {
       const minutes = Math.round(value * 60);
       return ((minutes % 1440) + 1440) % 1440;
     }
 
-    if (typeof value !== 'string') {
+    if (typeof value !== "string") {
       return null;
     }
 
@@ -372,7 +405,7 @@
   }
 
   function normalizeQuietHours(quietHours) {
-    if (!quietHours || typeof quietHours !== 'object') {
+    if (!quietHours || typeof quietHours !== "object") {
       return null;
     }
 
@@ -443,8 +476,8 @@
   }
 
   function formatDayKey(date) {
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
     return `${date.getFullYear()}-${month}-${day}`;
   }
 
@@ -496,19 +529,40 @@
    * @param {Function} [options.random] - RNG injection for tests
    * @returns {object} Lifecycle API
    */
+  /**
+   * JSON with object keys in sorted order, so two configs that differ only in
+   * key order compare equal (comparing configs across clients, MODULE-PLAN S3).
+   *
+   * @param {*} value - Any JSON-serialisable value
+   * @returns {string} Deterministic JSON
+   */
+  function stableStringify(value) {
+    return JSON.stringify(value, (_key, current) => {
+      if (current && typeof current === "object" && !Array.isArray(current)) {
+        return Object.keys(current)
+          .sort()
+          .reduce((sorted, key) => {
+            sorted[key] = current[key];
+            return sorted;
+          }, {});
+      }
+      return current;
+    });
+  }
+
   function createLifecycle(options = {}) {
     const host = options.module;
     if (!host) {
-      throw new Error('createLifecycle requires a `module` reference');
+      throw new Error("createLifecycle requires a `module` reference");
     }
 
     const logger = options.logger || null;
-    const logFn = typeof options.log === 'function' ? options.log : null;
+    const logFn = typeof options.log === "function" ? options.log : null;
     const timers = options.timers || {};
-    const setTimer = typeof timers.setTimeout === 'function' ? timers.setTimeout : setTimeout;
-    const clearTimer = typeof timers.clearTimeout === 'function' ? timers.clearTimeout : clearTimeout;
-    const now = typeof options.now === 'function' ? options.now : () => Date.now();
-    const random = typeof options.random === 'function' ? options.random : Math.random;
+    const setTimer = typeof timers.setTimeout === "function" ? timers.setTimeout : setTimeout;
+    const clearTimer = typeof timers.clearTimeout === "function" ? timers.clearTimeout : clearTimeout;
+    const now = typeof options.now === "function" ? options.now : () => Date.now();
+    const random = typeof options.random === "function" ? options.random : Math.random;
 
     const backgroundRefresh = options.backgroundRefresh !== false;
     const minUpdateInterval = Number.isFinite(options.minUpdateInterval)
@@ -540,6 +594,7 @@
     let awaitingResponse = false;
     let consecutiveFailures = 0;
     let retryNotBefore = 0;
+    let retryTimer = null;
     let lastSessionState = null;
     let currentDayKey = null;
     let pendingRender = null;
@@ -554,20 +609,20 @@
         return;
       }
 
-      if (logger && typeof logger[level] === 'function') {
+      if (logger && typeof logger[level] === "function") {
         logger[level](message, context);
       }
     }
 
     function safeCall(name, fn, arg) {
-      if (typeof fn !== 'function') {
+      if (typeof fn !== "function") {
         return undefined;
       }
 
       try {
         return fn(arg);
       } catch (error) {
-        log('error', `[lifecycle] callback "${name}" failed`, {
+        log("error", `[lifecycle] callback "${name}" failed`, {
           message: error instanceof Error ? error.message : String(error),
         });
         return undefined;
@@ -576,9 +631,9 @@
 
     function resolveUpdateInterval() {
       const raw =
-        typeof options.getUpdateInterval === 'function'
+        typeof options.getUpdateInterval === "function"
           ? options.getUpdateInterval()
-          : typeof options.updateInterval === 'function'
+          : typeof options.updateInterval === "function"
             ? options.updateInterval()
             : options.updateInterval;
       const value = Number(raw);
@@ -607,9 +662,7 @@
     }
 
     function getDataAge() {
-      return lastDataReceivedAt === null
-        ? Number.POSITIVE_INFINITY
-        : Math.max(0, now() - lastDataReceivedAt);
+      return lastDataReceivedAt === null ? Number.POSITIVE_INFINITY : Math.max(0, now() - lastDataReceivedAt);
     }
 
     function notifySessionState(state, reason) {
@@ -618,12 +671,12 @@
       }
 
       lastSessionState = state;
-      safeCall('onSessionState', options.onSessionState, { state, reason });
+      safeCall("onSessionState", options.onSessionState, { state, reason });
     }
 
     function currentDayKeyValue() {
-      if (typeof options.getDayKey === 'function') {
-        return safeCall('getDayKey', options.getDayKey) ?? null;
+      if (typeof options.getDayKey === "function") {
+        return safeCall("getDayKey", options.getDayKey) ?? null;
       }
 
       return formatDayKey(new Date(now()));
@@ -646,8 +699,8 @@
 
       const previous = currentDayKey;
       currentDayKey = key;
-      log('debug', `[lifecycle] day changed ${previous} -> ${key} (${reason})`);
-      safeCall('onDayChange', options.onDayChange, { previous, current: key, reason });
+      log("debug", `[lifecycle] day changed ${previous} -> ${key} (${reason})`);
+      safeCall("onDayChange", options.onDayChange, { previous, current: key, reason });
       return true;
     }
 
@@ -671,7 +724,7 @@
      * broken backend would turn every Carousel resume into a new request.
      */
     function canFetch(reason, force) {
-      if (typeof options.onFetch !== 'function') {
+      if (typeof options.onFetch !== "function") {
         return false;
       }
 
@@ -683,13 +736,13 @@
         const interval = resolveUpdateInterval();
         const spacing = Math.min(interval > 0 ? interval / 2 : retryInterval, retryInterval);
         if (now() - lastFetchStartedAt < spacing) {
-          log('debug', `[lifecycle] fetch skipped, minimum spacing not reached (${reason})`);
+          log("debug", `[lifecycle] fetch skipped, minimum spacing not reached (${reason})`);
           return false;
         }
       }
 
       if (retryNotBefore > now()) {
-        log('debug', `[lifecycle] fetch skipped, retry backoff active (${reason})`);
+        log("debug", `[lifecycle] fetch skipped, retry backoff active (${reason})`);
         return false;
       }
 
@@ -698,12 +751,12 @@
       }
 
       if (!backgroundRefresh && isSuspended()) {
-        log('debug', `[lifecycle] fetch skipped while suspended (${reason})`);
+        log("debug", `[lifecycle] fetch skipped while suspended (${reason})`);
         return false;
       }
 
       if (isQuietNow()) {
-        log('debug', `[lifecycle] fetch skipped during quiet hours (${reason})`);
+        log("debug", `[lifecycle] fetch skipped during quiet hours (${reason})`);
         return false;
       }
 
@@ -717,13 +770,13 @@
 
       if (awaitingResponse) {
         const backoff = registerFailure();
-        log('debug', `[lifecycle] previous fetch stayed unanswered, backing off ${Math.round(backoff / 1000)}s`);
+        log("debug", `[lifecycle] previous fetch stayed unanswered, backing off ${Math.round(backoff / 1000)}s`);
       }
 
       awaitingResponse = true;
       lastFetchStartedAt = now();
 
-      safeCall('onFetch', options.onFetch, {
+      safeCall("onFetch", options.onFetch, {
         reason,
         visible: !isSuspended(),
         dataAge: getDataAge(),
@@ -734,11 +787,11 @@
 
     function deferredInitPending() {
       const config = options.deferredInit;
-      if (!config || typeof config.run !== 'function') {
+      if (!config || typeof config.run !== "function") {
         return false;
       }
 
-      return typeof config.isPending === 'function' ? config.isPending() === true : true;
+      return typeof config.isPending === "function" ? config.isPending() === true : true;
     }
 
     /**
@@ -747,12 +800,12 @@
      */
     function runInitialWork(reason) {
       const config = options.deferredInit;
-      if (config && typeof config.run === 'function') {
+      if (config && typeof config.run === "function") {
         if (!deferredInitPending()) {
           return false;
         }
 
-        safeCall('deferredInit.run', config.run, reason);
+        safeCall("deferredInit.run", config.run, reason);
         return true;
       }
 
@@ -796,18 +849,18 @@
         if (!isHiddenByCore()) {
           if (paused) {
             paused = false;
-            notifySessionState('active', `${reason}-visible`);
+            notifySessionState("active", `${reason}-visible`);
             markVisible(reason);
             scheduleFetchTimer();
           }
 
-          log('info', `[lifecycle] deferred init runs after ${deferredInitAttempts} attempt(s)`);
+          log("info", `[lifecycle] deferred init runs after ${deferredInitAttempts} attempt(s)`);
           runInitialWork(`${reason}-retry-${deferredInitAttempts}`);
           return;
         }
 
         if (deferredInitAttempts >= maxAttempts) {
-          log('warn', `[lifecycle] deferred init gave up after ${maxAttempts} attempts, waiting for resume()`);
+          log("warn", `[lifecycle] deferred init gave up after ${maxAttempts} attempts, waiting for resume()`);
           return;
         }
 
@@ -815,6 +868,32 @@
       };
 
       deferredInitTimer = setTimer(tick, intervalMs);
+    }
+
+    function stopRetryTimer() {
+      if (retryTimer !== null) {
+        clearTimer(retryTimer);
+        retryTimer = null;
+      }
+    }
+
+    /**
+     * After a failed fetch, try again once the backoff has passed. The backoff
+     * alone only blocks attempts; without this timer the next one would wait for
+     * the periodic timer - hours for a module with a long updateInterval.
+     */
+    function scheduleRetry() {
+      if (!started || typeof options.onFetch !== "function" || retryTimer !== null) {
+        return;
+      }
+
+      retryTimer = setTimer(
+        () => {
+          retryTimer = null;
+          runFetch("retry");
+        },
+        Math.max(1000, retryNotBefore - now()),
+      );
     }
 
     function stopFetchTimer() {
@@ -867,16 +946,16 @@
         return;
       }
 
-      checkDayChange('timer');
+      checkDayChange("timer");
 
       if (isQuietNow() && lastDataReceivedAt !== null) {
         const wakeIn = msUntilQuietHoursEnd(new Date(now()), quietHours);
-        log('debug', '[lifecycle] periodic fetch suppressed by quiet hours');
+        log("debug", "[lifecycle] periodic fetch suppressed by quiet hours");
         scheduleFetchTimer(Math.min(interval, Math.max(1000, wakeIn) + 1000));
         return;
       }
 
-      runFetch('periodic');
+      runFetch("periodic");
       scheduleFetchTimer();
     }
 
@@ -896,7 +975,7 @@
     function startVisibleTimer() {
       const interval = Number(options.visibleTickInterval);
       if (
-        typeof options.onVisibleTick !== 'function' ||
+        typeof options.onVisibleTick !== "function" ||
         !Number.isFinite(interval) ||
         interval <= 0 ||
         visibleTimer !== null
@@ -915,7 +994,7 @@
         }
 
         visibleTickDueAt = now() + interval;
-        safeCall('onVisibleTick', options.onVisibleTick);
+        safeCall("onVisibleTick", options.onVisibleTick);
         visibleTimer = setTimer(tick, interval);
       };
 
@@ -929,7 +1008,7 @@
 
       const speed = pendingRender.speed;
       pendingRender = null;
-      if (typeof host.updateDom === 'function') {
+      if (typeof host.updateDom === "function") {
         host.updateDom(speed);
       }
     }
@@ -937,7 +1016,7 @@
     function markVisible(reason) {
       if (!visualActive) {
         visualActive = true;
-        safeCall('onVisible', options.onVisible, { reason });
+        safeCall("onVisible", options.onVisible, { reason });
       }
 
       startVisibleTimer();
@@ -948,7 +1027,7 @@
       stopVisibleTimer();
       if (visualActive) {
         visualActive = false;
-        safeCall('onHidden', options.onHidden, { reason });
+        safeCall("onHidden", options.onHidden, { reason });
       }
     }
 
@@ -959,7 +1038,7 @@
        * @param {string} [reason] - Diagnostic reason
        * @returns {object} The lifecycle API
        */
-      start(reason = 'start') {
+      start(reason = "start") {
         if (started) {
           return api;
         }
@@ -967,7 +1046,7 @@
         started = true;
         paused = isHiddenByCore();
         currentDayKey = currentDayKeyValue();
-        notifySessionState(paused ? 'paused' : 'active', reason);
+        notifySessionState(paused ? "paused" : "active", reason);
 
         if (!paused) {
           markVisible(reason);
@@ -982,7 +1061,7 @@
             runInitialWork(reason);
           }
         } else {
-          log('debug', '[lifecycle] module starts hidden, deferring initial work');
+          log("debug", "[lifecycle] module starts hidden, deferring initial work");
           scheduleDeferredInit(`${reason}-hidden`);
         }
 
@@ -997,9 +1076,10 @@
        */
       stop() {
         stopFetchTimer();
+        stopRetryTimer();
         stopVisibleTimer();
         stopDeferredInitTimer();
-        markHidden('stop');
+        markHidden("stop");
         started = false;
         paused = true;
         pendingRender = null;
@@ -1014,9 +1094,9 @@
        * @param {string} [reason] - Diagnostic reason
        * @returns {object} The lifecycle API
        */
-      suspend(reason = 'suspend') {
+      suspend(reason = "suspend") {
         if (!paused) {
-          log('debug', `[lifecycle] suspended (${reason})`);
+          log("debug", `[lifecycle] suspended (${reason})`);
         }
 
         paused = true;
@@ -1026,7 +1106,7 @@
           stopFetchTimer();
         }
 
-        notifySessionState('paused', reason);
+        notifySessionState("paused", reason);
         return api;
       },
 
@@ -1037,7 +1117,7 @@
        * @param {string} [reason] - Diagnostic reason
        * @returns {object} The lifecycle API
        */
-      resume(reason = 'resume') {
+      resume(reason = "resume") {
         if (!started) {
           return api.start(reason);
         }
@@ -1045,19 +1125,19 @@
         // show() can fail silently while lock strings are held, and Carousel
         // pre-renders hidden modules — trust module.hidden, not the callback.
         if (isHiddenByCore()) {
-          log('debug', `[lifecycle] ${reason} ignored, core still reports the module as hidden`);
+          log("debug", `[lifecycle] ${reason} ignored, core still reports the module as hidden`);
           paused = true;
           markHidden(`${reason}-while-hidden`);
-          notifySessionState('paused', `${reason}-while-hidden`);
+          notifySessionState("paused", `${reason}-while-hidden`);
           return api;
         }
 
         if (paused) {
-          log('debug', `[lifecycle] resumed (${reason})`);
+          log("debug", `[lifecycle] resumed (${reason})`);
         }
 
         paused = false;
-        notifySessionState('active', reason);
+        notifySessionState("active", reason);
         markVisible(reason);
         checkDayChange(reason);
 
@@ -1076,10 +1156,7 @@
         } else if (interval > 0 && dataAge >= interval) {
           runFetch(`${reason}-stale-data`);
         } else {
-          log(
-            'debug',
-            `[lifecycle] data is fresh (age=${Math.round(dataAge / 1000)}s), skipping duplicate fetch`
-          );
+          log("debug", `[lifecycle] data is fresh (age=${Math.round(dataAge / 1000)}s), skipping duplicate fetch`);
         }
 
         // Re-arm with the *remaining* interval so a hide/show cycle can never
@@ -1103,18 +1180,24 @@
         awaitingResponse = false;
         consecutiveFailures = 0;
         retryNotBefore = 0;
+        stopRetryTimer();
         return api;
       },
 
       /**
        * Record a failed fetch. Grows an exponential backoff so a broken backend
-       * cannot be hammered once per Carousel cycle.
+       * cannot be hammered once per Carousel cycle, and schedules the retry for
+       * when that backoff has passed.
        *
        * @returns {object} The lifecycle API
        */
       markFetchFailed() {
         const backoff = registerFailure();
-        log('debug', `[lifecycle] fetch failed (${consecutiveFailures}x), next attempt in ${Math.round(backoff / 1000)}s`);
+        log(
+          "debug",
+          `[lifecycle] fetch failed (${consecutiveFailures}x), next attempt in ${Math.round(backoff / 1000)}s`,
+        );
+        scheduleRetry();
         return api;
       },
 
@@ -1125,7 +1208,7 @@
        * @param {{force?: boolean}} [opts] - force bypasses quiet hours and the hidden guard
        * @returns {boolean} True when onFetch ran
        */
-      requestFetch(reason = 'manual', opts = {}) {
+      requestFetch(reason = "manual", opts = {}) {
         return runFetch(reason, opts.force === true);
       },
 
@@ -1144,7 +1227,7 @@
         }
 
         pendingRender = null;
-        if (typeof host.updateDom === 'function') {
+        if (typeof host.updateDom === "function") {
           host.updateDom(animationSpeed);
         }
 
@@ -1172,6 +1255,7 @@
           awaitingResponse,
           consecutiveFailures,
           retryNotBefore,
+          retryTimerArmed: retryTimer !== null,
           fetchTimerArmed: fetchTimer !== null,
           visibleTimerArmed: visibleTimer !== null,
           deferredInitArmed: deferredInitTimer !== null,
@@ -1186,17 +1270,17 @@
     return api;
   }
 
-  function createInstanceRegistry({ mode = 'auto' } = {}) {
+  function createInstanceRegistry({ mode = "auto" } = {}) {
     const states = new Map();
 
     function resolveKey(identifier, payload = {}) {
-      if (mode === 'disabled') {
-        return 'default';
+      if (mode === "disabled") {
+        return "default";
       }
-      if (mode === 'enabled') {
-        return payload.instanceId || identifier || 'default';
+      if (mode === "enabled") {
+        return payload.instanceId || identifier || "default";
       }
-      return payload.instanceId || identifier || 'default';
+      return payload.instanceId || identifier || "default";
     }
 
     return {
@@ -1236,6 +1320,7 @@
     createEnvelope,
     sanitizeForLogging,
     createLifecycle,
+    stableStringify,
     parseClockToMinutes,
     isWithinQuietHours,
     msUntilQuietHoursEnd,

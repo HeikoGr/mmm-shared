@@ -8,6 +8,7 @@ sowohl im Backend (`require`) als auch im Frontend (`getScripts()` →
 
 ```bash
 node --run test
+node --run lint   # Biome, dieselbe Konfiguration wie in den Modulen
 ```
 
 ## `createLifecycle({ module, … })`
@@ -113,6 +114,39 @@ socketNotificationReceived(notification, payload) {
 `onVisible`, `onHidden`, `onVisibleTick` + `visibleTickInterval`, `onDayChange`,
 `onSessionState`, `deferredInit`, `getDayKey`, sowie `now`, `timers` und
 `random` zur Injektion in Tests.
+
+### Retry nach Fehlschlag (ab 0.3.0)
+
+`markFetchFailed()` erhoeht nicht nur den Backoff, sondern plant auch den naechsten
+Versuch (`onFetch` mit Grund `retry`) fuer den Zeitpunkt, an dem der Backoff
+ablaeuft: 1, 2, 4 … bis `maxRetryInterval` (Default 30 min). Frische Daten
+(`markDataReceived()`) und `stop()` raeumen ihn ab; `getState().retryTimerArmed`
+zeigt ihn an. Ohne diesen Timer wartete ein Modul mit langem `updateInterval`
+nach einem Fehlstart bis zum naechsten regulaeren Termin.
+
+## `stableStringify(value)`
+
+JSON mit sortierten Objektschluesseln — fuer den Vergleich von Configs, die sich
+nur in der Schluesselreihenfolge unterscheiden.
+
+## `backend-session.js` (nur Node)
+
+Die Backend-Haelfte des Musters „Config einmal, Backend besitzt die Kadenz"
+(`require('./lib/mmm-shared/backend-session')` im `node_helper`):
+
+| Funktion | Zweck |
+|---|---|
+| `createClientRegistry({ io, namespace, keyOf, onConnect, onMessage, onGone, graceMs })` | ordnet Browser-Sockets den Modulinstanzen zu; Instanz ohne Socket wird nach `graceMs` (10 min) freigegeben; Pause-Zustand pro Socket (`setPaused`, `isPaused`) |
+| `createInstanceHub({ moduleName, sendSocketNotification, fetch, lifecycleOptions, criticalKeys, prepareConfig, isFailure, onConfigured })` | ein `createLifecycle()` pro Instanz im Backend |
+
+Protokoll: Frontend sendet `CONFIGURE` (einmal, `data.config`) und
+`SESSION_STATE` (`active`/`paused`); der Hub schickt `DATA`, `FETCH_FAILED`,
+`CONFIG_INVALID`, `CONFIG_REJECTED` (nur an den abweichenden Socket) und
+`INIT_REQUIRED` (bei jeder neuen Verbindung und bei unbekannter Instanz) als
+`<Modul>_EVENT`. `hub.route(action, handler)` bedient modulspezifische Requests
+(z. B. Schreibzugriffe) mit Instanz-Config, `RESPONSE`/`ERROR` und
+`CONFIG_MISSING`. Ein Fetch pro Instanz; Wuensche waehrend eines laufenden
+Fetches laufen danach als Follow-up.
 
 ## Verwandte Repositories
 
