@@ -1,6 +1,5 @@
 /*
- * Tests for lib/backend-session.js. Module-local copy, byte-identical in every
- * module that carries lib/backend-session.js - change them together.
+ * Tests for backend-session.js.
  */
 const test = require("node:test");
 const assert = require("node:assert/strict");

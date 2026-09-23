@@ -2,10 +2,8 @@
  * Backend half of "config once, the backend owns the cadence" (MODULE-PLAN C1-C3,
  * S1, S2). Node only - the browser loads mmm-shared.js, not this file.
  *
- * Canonical version. MMM-CalDAV-Tasks, MMM-HomeConnect2, MMM-LibraryMonitor and
- * MMM-Photoprism2 still carry a module-local copy in lib/backend-session.js
- * (same code, require path "./mmm-shared/mmm-shared"); they switch to
- * lib/mmm-shared/backend-session.js once this version is in their submodule.
+ * Used by MMM-CalDAV-Tasks, MMM-HomeConnect2, MMM-LibraryMonitor and
+ * MMM-Photoprism2 as lib/mmm-shared/backend-session.js (submodule).
  *
  * - createClientRegistry(): which browser sockets show which module instance.
  *   MagicMirror gives every module instance its own socket in the module's

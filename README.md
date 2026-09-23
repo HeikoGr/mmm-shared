@@ -138,6 +138,7 @@ Die Backend-Haelfte des Musters „Config einmal, Backend besitzt die Kadenz"
 |---|---|
 | `createClientRegistry({ io, namespace, keyOf, onConnect, onMessage, onGone, graceMs })` | ordnet Browser-Sockets den Modulinstanzen zu; Instanz ohne Socket wird nach `graceMs` (10 min) freigegeben; Pause-Zustand pro Socket (`setPaused`, `isPaused`) |
 | `createInstanceHub({ moduleName, sendSocketNotification, fetch, lifecycleOptions, criticalKeys, prepareConfig, isFailure, onConfigured })` | ein `createLifecycle()` pro Instanz im Backend |
+| `formatLogEntry(entry)` | macht aus einem strukturierten `createLogger`-Eintrag eine Zeile `[identifier] message {context}`; für eine Log-Senke im `node_helper`, die MagicMirrors `Log` aufruft |
 
 Protokoll: Frontend sendet `CONFIGURE` (einmal, `data.config`) und
 `SESSION_STATE` (`active`/`paused`); der Hub schickt `DATA`, `FETCH_FAILED`,
