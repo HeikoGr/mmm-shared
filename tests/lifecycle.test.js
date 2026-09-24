@@ -724,3 +724,20 @@ test("stableStringify ignores key order, keeps array order", () => {
   assert.notEqual(shared.stableStringify([1, 2]), shared.stableStringify([2, 1]));
   assert.equal(shared.stableStringify(undefined), undefined);
 });
+
+test("reportSessionState repeats the current state even without a change", () => {
+  const states = [];
+  const module = { hidden: false };
+  const lifecycle = shared.createLifecycle({
+    module,
+    updateInterval: 0,
+    onSessionState: ({ state }) => states.push(state),
+  });
+  lifecycle.start();
+  lifecycle.suspend();
+  lifecycle.suspend();
+  assert.deepEqual(states, ["active", "paused"]);
+  lifecycle.reportSessionState("init-required");
+  assert.deepEqual(states, ["active", "paused", "paused"]);
+  lifecycle.stop();
+});

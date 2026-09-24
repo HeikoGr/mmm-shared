@@ -100,6 +100,7 @@ socketNotificationReceived(notification, payload) {
 | `markDataReceived(ts?)` | Frische Daten angekommen — setzt den Freshness-Guard |
 | `markFetchFailed()` | Fehlgeschlagener Fetch — erhoeht den Backoff |
 | `requestFetch(reason, { force })` | Fetch ausserhalb des Timers (z. B. Nutzeraktion) |
+| `reportSessionState(reason?)` | Aktuellen Zustand (`active`/`paused`) erneut an `onSessionState` melden, auch ohne Wechsel — z. B. nach `INIT_REQUIRED` |
 | `render(speed?)` | `updateDom()` mit Aussetzer, solange versteckt; wird beim `resume()` nachgeholt |
 | `isSuspended()` / `isVisible()` / `getDataAge()` | Abfragen |
 | `stop()` | Alle Timer abraeumen (Tests, eigenes Teardown) |
@@ -148,6 +149,13 @@ Protokoll: Frontend sendet `CONFIGURE` (einmal, `data.config`) und
 (z. B. Schreibzugriffe) mit Instanz-Config, `RESPONSE`/`ERROR` und
 `CONFIG_MISSING`. Ein Fetch pro Instanz; Wuensche waehrend eines laufenden
 Fetches laufen danach als Follow-up.
+
+Secrets: Mit `hideConfigSecrets: true` loest MagicMirror `**SECRET_…**`-Platzhalter
+nur auf seinem eigenen Weg zu `socketNotificationReceived` auf. Der Hub bearbeitet
+`CONFIGURE`/`SESSION_STATE` deshalb mit der Kopie, die der `node_helper` ueber
+`hub.socketNotificationReceived()` weiterreicht (Zuordnung per `requestId`); sein
+eigener Socket-Listener liefert nur die Zuordnung Socket → Instanz. Der
+`node_helper` muss dafuer jede Notification an den Hub weitergeben.
 
 ## Verwandte Repositories
 

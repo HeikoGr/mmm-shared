@@ -224,6 +224,37 @@ function createInstanceHub(options = {}) {
 
   const instances = new Map();
 
+  /*
+   * MagicMirror resolves **SECRET_...** placeholders (hideConfigSecrets) only on
+   * its own path to socketNotificationReceived; this hub's socket listener sees
+   * the raw payload. The core's listener is registered before the helper starts,
+   * so for the same message it runs first: keep its copy by requestId and use it
+   * when the socket listener handles the request (MODULE-PLAN S6).
+   */
+  const coreCopies = new Map();
+  const MAX_CORE_COPIES = 100;
+
+  function keepCoreCopy(payload) {
+    const requestId = payload?.requestId;
+    if (!requestId) {
+      return;
+    }
+    coreCopies.set(requestId, payload);
+    if (coreCopies.size > MAX_CORE_COPIES) {
+      coreCopies.delete(coreCopies.keys().next().value);
+    }
+  }
+
+  function fromCore(payload) {
+    const requestId = payload?.requestId;
+    if (!requestId || !coreCopies.has(requestId)) {
+      return payload;
+    }
+    const copy = coreCopies.get(requestId);
+    coreCopies.delete(requestId);
+    return copy;
+  }
+
   function log(level, message, context) {
     logger?.[level]?.(message, context);
   }
@@ -251,7 +282,7 @@ function createInstanceHub(options = {}) {
     onConnect: (socket) => socket.emit(notifications.EVENT, envelope("*", "INIT_REQUIRED", null)),
     onMessage: (socket, notification, payload) => {
       if (notification === notifications.REQUEST) {
-        handleRequest(payload, socket.id, (identifier, action, data, error) =>
+        handleRequest(fromCore(payload), socket.id, (identifier, action, data, error) =>
           socket.emit(notifications.EVENT, envelope(identifier, action, data, error)),
         );
       }
@@ -506,7 +537,9 @@ function createInstanceHub(options = {}) {
       if (action !== "CONFIGURE" && action !== "SESSION_STATE") {
         return false;
       }
-      if (!registry.attached) {
+      if (registry.attached) {
+        keepCoreCopy(payload);
+      } else {
         handleRequest(payload, "default", broadcast);
       }
       return true;
@@ -541,6 +574,7 @@ function createInstanceHub(options = {}) {
         stopInstance(instance);
       }
       instances.clear();
+      coreCopies.clear();
       registry.stop();
     },
   };

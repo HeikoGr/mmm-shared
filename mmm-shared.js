@@ -1170,6 +1170,23 @@
       },
 
       /**
+       * Report the current active/paused state again, even without a change -
+       * e.g. after the backend lost it (server restart, INIT_REQUIRED).
+       *
+       * @param {string} [reason] - Diagnostic reason
+       * @returns {object} The lifecycle API
+       */
+      reportSessionState(reason = "report") {
+        if (!started) {
+          return api;
+        }
+        const state = isSuspended() ? "paused" : "active";
+        lastSessionState = state;
+        safeCall("onSessionState", options.onSessionState, { state, reason });
+        return api;
+      },
+
+      /**
        * Record that fresh data arrived. Feeds the freshness guard.
        *
        * @param {number} [timestamp] - Epoch ms, defaults to now

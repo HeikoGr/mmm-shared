@@ -438,3 +438,40 @@ test("formatLogEntry turns a structured entry into one line", () => {
   assert.equal(formatLogEntry(entry("global", "timeout")), "[global] done timeout");
   assert.equal(formatLogEntry("plain text"), "plain text");
 });
+
+test("CONFIGURE uses the payload with the secrets the core resolved, not the raw socket one", async (t) => {
+  const io = createFakeIo();
+  const fetches = [];
+  let hub = null;
+  // MagicMirror registers its own listener before the helper starts and resolves
+  // **SECRET_...** placeholders there (hideConfigSecrets).
+  io.of().on("connection", (socket) =>
+    socket.onAny((notification, payload) =>
+      hub.socketNotificationReceived(
+        notification,
+        JSON.parse(JSON.stringify(payload).replaceAll("**SECRET_PW**", "real-password")),
+      ),
+    ),
+  );
+  hub = createInstanceHub({
+    moduleName: MODULE,
+    sendSocketNotification: () => {},
+    lifecycleOptions: () => ({ updateInterval: 10 * 60 * 1000 }),
+    fetch: async (context) => {
+      fetches.push(context);
+      return {};
+    },
+    io,
+  });
+  t.after(() => hub.stop());
+
+  const socket = io.connect("s1");
+  socket.send(REQUEST, {
+    ...request("m1", "CONFIGURE", { config: { password: "**SECRET_PW**" } }),
+    requestId: "r1",
+  });
+  await settle();
+
+  assert.equal(fetches.length, 1);
+  assert.equal(fetches[0].config.password, "real-password");
+});
