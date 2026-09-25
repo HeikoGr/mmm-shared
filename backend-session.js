@@ -33,26 +33,8 @@ function parsePayload(payload) {
   }
 }
 
-/**
- * JSON with sorted object keys, so key order never makes two configs differ
- * (same as stableStringify in mmm-shared from 0.3.0 on, MODULE-PLAN S3).
- */
-function stableStringify(value) {
-  return JSON.stringify(value, (_key, current) => {
-    if (current && typeof current === "object" && !Array.isArray(current)) {
-      return Object.keys(current)
-        .sort()
-        .reduce((sorted, key) => {
-          sorted[key] = current[key];
-          return sorted;
-        }, {});
-    }
-    return current;
-  });
-}
-
 function sameValue(a, b) {
-  return stableStringify(a ?? null) === stableStringify(b ?? null);
+  return shared.stableStringify(a ?? null) === shared.stableStringify(b ?? null);
 }
 
 /**
@@ -217,9 +199,6 @@ function createInstanceHub(options = {}) {
   // action -> handler for module-specific requests (MODULE-PLAN S1)
   const routes = new Map();
   const logger = options.logger || null;
-  const setTimer = options.timers?.setTimeout || setTimeout;
-  const clearTimer = options.timers?.clearTimeout || clearTimeout;
-  const now = typeof options.now === "function" ? options.now : () => Date.now();
   const criticalKeys = options.criticalKeys || [];
 
   const instances = new Map();
@@ -297,34 +276,8 @@ function createInstanceHub(options = {}) {
     },
   });
 
-  function clearRetry(instance) {
-    if (instance.retryTimer) {
-      clearTimer(instance.retryTimer);
-      instance.retryTimer = null;
-    }
-  }
-
   function stopInstance(instance) {
-    clearRetry(instance);
     instance.lifecycle.stop();
-  }
-
-  /**
-   * A failed fetch grows the lifecycle backoff and schedules the retry itself:
-   * the backoff alone only blocks attempts, it never starts one (MODULE-PLAN S4).
-   */
-  function registerFailure(instance) {
-    instance.lifecycle.markFetchFailed();
-    // mmm-shared from 0.3.0 on schedules the retry itself (it reports
-    // retryTimerArmed); only older versions need the timer here.
-    if (instance.retryTimer || instance.lifecycle.getState().retryTimerArmed !== undefined) {
-      return;
-    }
-    const delay = Math.max(1000, instance.lifecycle.getState().retryNotBefore - now());
-    instance.retryTimer = setTimer(() => {
-      instance.retryTimer = null;
-      instance.lifecycle.requestFetch("retry");
-    }, delay);
   }
 
   async function runFetch(identifier, reason) {
@@ -348,9 +301,8 @@ function createInstanceHub(options = {}) {
       instance.lastData = data;
       instance.lastError = null;
       if (options.isFailure?.(data)) {
-        registerFailure(instance);
+        instance.lifecycle.markFetchFailed();
       } else {
-        clearRetry(instance);
         instance.lifecycle.markDataReceived();
       }
       broadcast(identifier, "DATA", data);
@@ -366,7 +318,8 @@ function createInstanceHub(options = {}) {
       });
       instance.lastError = failure;
       log("error", "fetch failed", { identifier, reason, message: failure.message });
-      registerFailure(instance);
+      // The lifecycle grows the backoff and schedules the retry itself (MODULE-PLAN S4).
+      instance.lifecycle.markFetchFailed();
       broadcast(identifier, "FETCH_FAILED", null, failure);
     } finally {
       instance.inFlight = false;
@@ -471,7 +424,6 @@ function createInstanceHub(options = {}) {
       lastError: null,
       inFlight: false,
       followUp: false,
-      retryTimer: null,
     };
     instance.lifecycle = shared.createLifecycle({
       ...options.lifecycleOptions(instance.config),

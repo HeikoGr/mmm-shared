@@ -111,7 +111,7 @@ socketNotificationReceived(notification, payload) {
 `module` (Pflicht), `logger` (Objekt mit `debug/info/warn/error`) **oder** `log`
 (Funktion `(level, message)`), `updateInterval` / `getUpdateInterval`,
 `minUpdateInterval`, `jitterRatio`, `backgroundRefresh`, `quietHours`,
-`anchorHour`, `startDelay`, `retryInterval`, `maxRetryInterval`, `onFetch`,
+`anchorHour`, `retryInterval`, `maxRetryInterval`, `onFetch`,
 `onVisible`, `onHidden`, `onVisibleTick` + `visibleTickInterval`, `onDayChange`,
 `onSessionState`, `deferredInit`, `getDayKey`, sowie `now`, `timers` und
 `random` zur Injektion in Tests.

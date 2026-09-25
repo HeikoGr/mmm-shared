@@ -162,27 +162,6 @@
     return `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
   }
 
-  function createModuleContext(moduleName, identifier, options = {}) {
-    const instanceId = options.instanceId || identifier || "default";
-    const featureFlags = {
-      logLevel: options.logLevel || null,
-      logStructured: options.logStructured !== false,
-      logRedaction: options.logRedaction !== false,
-      strictValidation: options.strictValidation === true,
-      allowLegacyKeys: options.allowLegacyKeys === true,
-      multiInstanceMode: options.multiInstanceMode || "auto",
-    };
-
-    return {
-      moduleName,
-      identifier: identifier || "default",
-      instanceId,
-      featureFlags,
-      now: () => Date.now(),
-      requestIdFactory: generateRequestId,
-    };
-  }
-
   function createEnvelope(input) {
     return {
       identifier: input.identifier || "default",
@@ -296,70 +275,6 @@
           retryable: context.retryable === true,
           severity: context.severity || "error",
         };
-      },
-    };
-  }
-
-  function createValidator({ schema = {}, defaults = {}, strictValidation = false } = {}) {
-    function validateValue(path, value, rule, errors) {
-      const expected = rule.type;
-      const actual = Array.isArray(value) ? "array" : typeof value;
-      if (expected && expected !== actual) {
-        errors.push(`${path} must be ${expected}, got ${actual}`);
-        return;
-      }
-      if (rule.enum && !rule.enum.includes(value)) {
-        errors.push(`${path} must be one of ${rule.enum.join(", ")}`);
-      }
-      if (expected === "number") {
-        if (rule.min !== undefined && value < rule.min) {
-          errors.push(`${path} must be >= ${rule.min}`);
-        }
-        if (rule.max !== undefined && value > rule.max) {
-          errors.push(`${path} must be <= ${rule.max}`);
-        }
-      }
-      if (rule.schema && expected === "object") {
-        for (const [nestedKey, nestedRule] of Object.entries(rule.schema)) {
-          const nestedValue = value ? value[nestedKey] : undefined;
-          if (nestedRule.required && nestedValue === undefined) {
-            errors.push(`${path}.${nestedKey} is required`);
-            continue;
-          }
-          if (nestedValue !== undefined) {
-            validateValue(`${path}.${nestedKey}`, nestedValue, nestedRule, errors);
-          }
-        }
-      }
-    }
-
-    return {
-      normalize(rawConfig = {}) {
-        return { ...defaults, ...rawConfig };
-      },
-      validate(rawConfig = {}) {
-        const normalized = { ...defaults, ...rawConfig };
-        const errors = [];
-        for (const [key, rule] of Object.entries(schema)) {
-          const value = normalized[key];
-          if (rule.required && value === undefined) {
-            errors.push(`${key} is required`);
-            continue;
-          }
-          if (value !== undefined) {
-            validateValue(key, value, rule, errors);
-          }
-        }
-        return {
-          valid: strictValidation ? errors.length === 0 : errors.length === 0,
-          config: normalized,
-          errors,
-          warnings: [],
-          legacyUsed: [],
-        };
-      },
-      explain(errors = [], warnings = []) {
-        return { errors, warnings };
       },
     };
   }
@@ -482,6 +397,27 @@
   }
 
   /**
+   * JSON with object keys in sorted order, so two configs that differ only in
+   * key order compare equal (comparing configs across clients, MODULE-PLAN S3).
+   *
+   * @param {*} value - Any JSON-serialisable value
+   * @returns {string} Deterministic JSON
+   */
+  function stableStringify(value) {
+    return JSON.stringify(value, (_key, current) => {
+      if (current && typeof current === "object" && !Array.isArray(current)) {
+        return Object.keys(current)
+          .sort()
+          .reduce((sorted, key) => {
+            sorted[key] = current[key];
+            return sorted;
+          }, {});
+      }
+      return current;
+    });
+  }
+
+  /**
    * Create the shared frontend lifecycle for a MagicMirror module.
    *
    * The helper owns everything the MagicMirror core does *not* guarantee:
@@ -511,7 +447,6 @@
    * @param {boolean} [options.backgroundRefresh] - Keep fetching while hidden (default true)
    * @param {{from: string|number, to: string|number}} [options.quietHours] - Window without polling
    * @param {number} [options.anchorHour] - Anchor the interval grid to a time of day
-   * @param {number} [options.startDelay] - Delay before the very first fetch
    * @param {number} [options.retryInterval] - Base backoff after a failed fetch (default 60 s)
    * @param {number} [options.maxRetryInterval] - Upper bound of the backoff (default 30 min)
    * @param {Function} [options.onFetch] - Called when data should be fetched
@@ -529,27 +464,6 @@
    * @param {Function} [options.random] - RNG injection for tests
    * @returns {object} Lifecycle API
    */
-  /**
-   * JSON with object keys in sorted order, so two configs that differ only in
-   * key order compare equal (comparing configs across clients, MODULE-PLAN S3).
-   *
-   * @param {*} value - Any JSON-serialisable value
-   * @returns {string} Deterministic JSON
-   */
-  function stableStringify(value) {
-    return JSON.stringify(value, (_key, current) => {
-      if (current && typeof current === "object" && !Array.isArray(current)) {
-        return Object.keys(current)
-          .sort()
-          .reduce((sorted, key) => {
-            sorted[key] = current[key];
-            return sorted;
-          }, {});
-      }
-      return current;
-    });
-  }
-
   function createLifecycle(options = {}) {
     const host = options.module;
     if (!host) {
@@ -573,7 +487,6 @@
       : LIFECYCLE_DEFAULTS.jitterRatio;
     const quietHours = normalizeQuietHours(options.quietHours);
     const anchorHour = Number.isFinite(options.anchorHour) ? options.anchorHour : null;
-    const startDelay = Number.isFinite(options.startDelay) ? Math.max(0, options.startDelay) : 0;
     const retryInterval = Number.isFinite(options.retryInterval)
       ? Math.max(1000, options.retryInterval)
       : LIFECYCLE_DEFAULTS.retryInterval;
@@ -1055,11 +968,7 @@
         scheduleFetchTimer();
 
         if (backgroundRefresh || !paused) {
-          if (startDelay > 0) {
-            setTimer(() => runInitialWork(reason), startDelay);
-          } else {
-            runInitialWork(reason);
-          }
+          runInitialWork(reason);
         } else {
           log("debug", "[lifecycle] module starts hidden, deferring initial work");
           scheduleDeferredInit(`${reason}-hidden`);
@@ -1287,53 +1196,14 @@
     return api;
   }
 
-  function createInstanceRegistry({ mode = "auto" } = {}) {
-    const states = new Map();
-
-    function resolveKey(identifier, payload = {}) {
-      if (mode === "disabled") {
-        return "default";
-      }
-      if (mode === "enabled") {
-        return payload.instanceId || identifier || "default";
-      }
-      return payload.instanceId || identifier || "default";
-    }
-
-    return {
-      resolveKey,
-      get(key) {
-        return states.get(key);
-      },
-      set(key, value) {
-        states.set(key, value);
-      },
-      delete(key) {
-        states.delete(key);
-      },
-      cleanup(maxAgeMs) {
-        const now = Date.now();
-        for (const [key, value] of states.entries()) {
-          const updatedAt = value?.updatedAt;
-          if (!updatedAt || now - updatedAt > maxAgeMs) {
-            states.delete(key);
-          }
-        }
-      },
-    };
-  }
-
   return {
     LEVELS,
     normalizeLevel,
     buildNotifications,
-    createModuleContext,
     createTransport,
     createNodeTransport,
     createLogger,
-    createValidator,
     createErrorFactory,
-    createInstanceRegistry,
     createEnvelope,
     sanitizeForLogging,
     createLifecycle,
