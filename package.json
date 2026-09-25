@@ -4,7 +4,6 @@
   "description": "Gemeinsame JavaScript-Helfer fuer meine MagicMirror-Module",
   "main": "mmm-shared.js",
   "files": [
-    "mmm-shared.js",
     "backend-session.js"
   ],
   "type": "commonjs",
