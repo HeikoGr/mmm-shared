@@ -180,8 +180,13 @@ function createClientRegistry(options = {}) {
  * @param {Function} [options.prepareConfig] - (config) => effective config; throws when invalid
  * @param {Function} [options.isFailure] - (data) => true when data arrived but counts as a failed fetch
  * @param {Function} [options.onConfigured] - (identifier, config) => void, once per new instance
+ * @param {Function} [options.onReleased] - (identifier) => void, after an instance without displays was released
+ * @param {Function} [options.describe] - (identifier, config) => data; answered to a configuring client as
+ *   CONFIGURED before its first DATA / FETCH_FAILED (e.g. config warnings), not for CONFIG_INVALID / CONFIG_REJECTED
  * @param {object} [options.io] - Socket.io server; without it replies go out as broadcasts
  * @param {object} [options.logger] - { debug, info, warn, error }
+ * @param {Function} [options.loggerFor] - (identifier) => logger for that instance's lifecycle (its
+ *   `[lifecycle]` lines); defaults to `logger`
  * @param {number} [options.graceMs] - See createClientRegistry
  * @param {object} [options.timers] - { setTimeout, clearTimeout } for tests
  * @param {Function} [options.now] - Clock for tests
@@ -272,6 +277,7 @@ function createInstanceHub(options = {}) {
         stopInstance(instance);
         instances.delete(identifier);
         log("info", "instance released, no display left", { identifier });
+        options.onReleased?.(identifier);
       }
     },
   });
@@ -378,6 +384,12 @@ function createInstanceHub(options = {}) {
     }
   }
 
+  function replyConfigured(identifier, config, reply) {
+    if (options.describe) {
+      reply(identifier, "CONFIGURED", options.describe(identifier, config));
+    }
+  }
+
   function configure(identifier, config, reply) {
     const existing = instances.get(identifier);
     if (existing) {
@@ -393,6 +405,7 @@ function createInstanceHub(options = {}) {
       if (differing.length > 0) {
         log("warn", "client config differs, the running config keeps precedence", { identifier, keys: differing });
       }
+      replyConfigured(identifier, existing.config, reply);
       if (existing.lastData !== undefined) {
         reply(identifier, "DATA", existing.lastData);
       } else if (existing.lastError) {
@@ -428,7 +441,7 @@ function createInstanceHub(options = {}) {
     instance.lifecycle = shared.createLifecycle({
       ...options.lifecycleOptions(instance.config),
       module: host,
-      logger,
+      logger: options.loggerFor?.(identifier) || logger,
       timers: options.timers,
       now: options.now,
       random: options.random,
@@ -439,6 +452,7 @@ function createInstanceHub(options = {}) {
     instances.set(identifier, instance);
     options.onConfigured?.(identifier, instance.config);
     log("info", "instance configured", { identifier });
+    replyConfigured(identifier, instance.config, reply);
     instance.lifecycle.start("configure");
   }
 
