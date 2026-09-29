@@ -138,8 +138,17 @@ Die Backend-Haelfte des Musters „Config einmal, Backend besitzt die Kadenz"
 | Funktion | Zweck |
 |---|---|
 | `createClientRegistry({ io, namespace, keyOf, onConnect, onMessage, onGone, graceMs })` | ordnet Browser-Sockets den Modulinstanzen zu; Instanz ohne Socket wird nach `graceMs` (10 min) freigegeben; Pause-Zustand pro Socket (`setPaused`, `isPaused`) |
-| `createInstanceHub({ moduleName, sendSocketNotification, fetch, lifecycleOptions, criticalKeys, prepareConfig, isFailure, onConfigured })` | ein `createLifecycle()` pro Instanz im Backend |
+| `createInstanceHub({ moduleName, sendSocketNotification, fetch, lifecycleOptions, criticalKeys, prepareConfig, isFailure, onConfigured, onReleased, describe })` | ein `createLifecycle()` pro Instanz im Backend |
 | `formatLogEntry(entry)` | macht aus einem strukturierten `createLogger`-Eintrag eine Zeile `[identifier] message {context}`; für eine Log-Senke im `node_helper`, die MagicMirrors `Log` aufruft |
+
+Optionale Haken: `loggerFor(identifier)` liefert den Logger für die `[lifecycle]`-Zeilen einer Instanz
+(z. B. mit deren eigenem `logLevel`). `onReleased(identifier)` läuft, nachdem eine Instanz ohne Display
+freigegeben wurde (Aufräumen modulseitiger Zustände). `describe(identifier, config)`
+liefert Daten, die der Hub jedem konfigurierenden Client als `CONFIGURED` vor dem
+ersten `DATA`/`FETCH_FAILED` schickt (z. B. Config-Warnungen, bevor ein langsamer
+erster Fetch fertig ist); nicht bei `CONFIG_INVALID`/`CONFIG_REJECTED`. Hängt ein
+`prepareConfig` einem geworfenen Fehler `details` an, übernimmt `CONFIG_INVALID`
+sie in `error.details` (`createErrorFactory().fromException` tut das allgemein).
 
 Protokoll: Frontend sendet `CONFIGURE` (einmal, `data.config`) und
 `SESSION_STATE` (`active`/`paused`); der Hub schickt `DATA`, `FETCH_FAILED`,

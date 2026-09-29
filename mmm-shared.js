@@ -269,6 +269,8 @@
           code,
           message,
           details: {
+            // What the thrower attached (e.g. a list of validation errors) survives.
+            ...(error?.details || {}),
             ...(context.details || {}),
             originalName: error instanceof Error ? error.name : typeof error,
           },
