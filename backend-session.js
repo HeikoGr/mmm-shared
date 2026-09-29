@@ -1,6 +1,5 @@
 /*
- * Backend half of "config once, the backend owns the cadence" (MODULE-PLAN C1-C3,
- * S1, S2). Node only - the browser loads mmm-shared.js, not this file.
+ * Backend half of "config once, the backend owns the cadence". Node only - the browser loads mmm-shared.js, not this file.
  *
  * Used by MMM-CalDAV-Tasks, MMM-HomeConnect2, MMM-LibraryMonitor and
  * MMM-Photoprism2 as lib/mmm-shared/backend-session.js (submodule).
@@ -201,7 +200,7 @@ function createInstanceHub(options = {}) {
     moduleName,
     sendSocketNotification: options.sendSocketNotification,
   });
-  // action -> handler for module-specific requests (MODULE-PLAN S1)
+  // action -> handler for module-specific requests
   const routes = new Map();
   const logger = options.logger || null;
   const criticalKeys = options.criticalKeys || [];
@@ -213,7 +212,7 @@ function createInstanceHub(options = {}) {
    * its own path to socketNotificationReceived; this hub's socket listener sees
    * the raw payload. The core's listener is registered before the helper starts,
    * so for the same message it runs first: keep its copy by requestId and use it
-   * when the socket listener handles the request (MODULE-PLAN S6).
+   * when the socket listener handles the request.
    */
   const coreCopies = new Map();
   const MAX_CORE_COPIES = 100;
@@ -246,7 +245,6 @@ function createInstanceHub(options = {}) {
   function envelope(identifier, action, data, error = null) {
     return shared.createEnvelope({
       identifier,
-      instanceId: identifier,
       action,
       ok: !error,
       data,
@@ -324,7 +322,7 @@ function createInstanceHub(options = {}) {
       });
       instance.lastError = failure;
       log("error", "fetch failed", { identifier, reason, message: failure.message });
-      // The lifecycle grows the backoff and schedules the retry itself (MODULE-PLAN S4).
+      // The lifecycle grows the backoff and schedules the retry itself.
       instance.lifecycle.markFetchFailed();
       broadcast(identifier, "FETCH_FAILED", null, failure);
     } finally {

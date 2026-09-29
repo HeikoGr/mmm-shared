@@ -100,7 +100,7 @@ function createFakeIo() {
 }
 
 function request(identifier, action, data) {
-  return { identifier, instanceId: identifier, action, data };
+  return { identifier, action, data };
 }
 
 function startHub(overrides = {}) {
@@ -314,7 +314,7 @@ test("the registry reports clients and pause state per instance", async () => {
   const registry = createClientRegistry({
     io,
     namespace: MODULE,
-    keyOf: (payload) => payload?.instanceId || null,
+    keyOf: (payload) => payload?.identifier || null,
     onGone: (key) => gone.push(key),
     graceMs: 1000,
     timers: clock.timers,
@@ -322,8 +322,8 @@ test("the registry reports clients and pause state per instance", async () => {
 
   const a = io.connect("a");
   const b = io.connect("b");
-  a.send(REQUEST, { instanceId: "x" });
-  b.send(REQUEST, { instanceId: "x" });
+  a.send(REQUEST, { identifier: "x" });
+  b.send(REQUEST, { identifier: "x" });
   registry.setPaused("a", "x", true);
   assert.equal(registry.hasClients("x"), true);
   assert.equal(registry.isPaused("x"), false, "one display still shows it");
