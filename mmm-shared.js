@@ -165,7 +165,6 @@
   function createEnvelope(input) {
     return {
       identifier: input.identifier || "default",
-      instanceId: input.instanceId || input.identifier || "default",
       requestId: input.requestId || generateRequestId(),
       ts: input.ts || Date.now(),
       action: input.action,
@@ -176,7 +175,7 @@
     };
   }
 
-  function createTransport({ moduleName, identifier, instanceId, sendSocketNotification }) {
+  function createTransport({ moduleName, identifier, sendSocketNotification }) {
     const notifications = buildNotifications(moduleName);
 
     return {
@@ -184,7 +183,6 @@
       sendRequest(action, data, meta = {}) {
         const payload = createEnvelope({
           identifier,
-          instanceId: instanceId || identifier,
           action,
           ok: true,
           data,
@@ -198,7 +196,6 @@
           notifications.CONFIG,
           createEnvelope({
             identifier,
-            instanceId: instanceId || identifier,
             action: "CONFIG",
             ok: true,
             data: config,
@@ -210,7 +207,6 @@
           notifications.LIFECYCLE,
           createEnvelope({
             identifier,
-            instanceId: instanceId || identifier,
             action: state,
             ok: true,
             data: null,
@@ -230,7 +226,6 @@
           notifications.RESPONSE,
           createEnvelope({
             identifier: requestEnvelope.identifier,
-            instanceId: requestEnvelope.instanceId,
             requestId: requestEnvelope.requestId,
             action: requestEnvelope.action,
             ok: true,
@@ -244,7 +239,6 @@
           notifications.ERROR,
           createEnvelope({
             identifier: requestEnvelope.identifier,
-            instanceId: requestEnvelope.instanceId,
             requestId: requestEnvelope.requestId,
             action: requestEnvelope.action,
             ok: false,
@@ -269,6 +263,8 @@
           code,
           message,
           details: {
+            // What the thrower attached (e.g. a list of validation errors) survives.
+            ...(error?.details || {}),
             ...(context.details || {}),
             originalName: error instanceof Error ? error.name : typeof error,
           },
@@ -398,7 +394,7 @@
 
   /**
    * JSON with object keys in sorted order, so two configs that differ only in
-   * key order compare equal (comparing configs across clients, MODULE-PLAN S3).
+   * key order compare equal (comparing configs across clients).
    *
    * @param {*} value - Any JSON-serialisable value
    * @returns {string} Deterministic JSON

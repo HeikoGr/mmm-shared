@@ -1,6 +1,5 @@
 /*
- * Backend half of "config once, the backend owns the cadence" (MODULE-PLAN C1-C3,
- * S1, S2). Node only - the browser loads mmm-shared.js, not this file.
+ * Backend half of "config once, the backend owns the cadence". Node only - the browser loads mmm-shared.js, not this file.
  *
  * Used by MMM-CalDAV-Tasks, MMM-HomeConnect2, MMM-LibraryMonitor and
  * MMM-Photoprism2 as lib/mmm-shared/backend-session.js (submodule).
@@ -180,8 +179,13 @@ function createClientRegistry(options = {}) {
  * @param {Function} [options.prepareConfig] - (config) => effective config; throws when invalid
  * @param {Function} [options.isFailure] - (data) => true when data arrived but counts as a failed fetch
  * @param {Function} [options.onConfigured] - (identifier, config) => void, once per new instance
+ * @param {Function} [options.onReleased] - (identifier) => void, after an instance without displays was released
+ * @param {Function} [options.describe] - (identifier, config) => data; answered to a configuring client as
+ *   CONFIGURED before its first DATA / FETCH_FAILED (e.g. config warnings), not for CONFIG_INVALID / CONFIG_REJECTED
  * @param {object} [options.io] - Socket.io server; without it replies go out as broadcasts
  * @param {object} [options.logger] - { debug, info, warn, error }
+ * @param {Function} [options.loggerFor] - (identifier) => logger for that instance's lifecycle (its
+ *   `[lifecycle]` lines); defaults to `logger`
  * @param {number} [options.graceMs] - See createClientRegistry
  * @param {object} [options.timers] - { setTimeout, clearTimeout } for tests
  * @param {Function} [options.now] - Clock for tests
@@ -196,7 +200,7 @@ function createInstanceHub(options = {}) {
     moduleName,
     sendSocketNotification: options.sendSocketNotification,
   });
-  // action -> handler for module-specific requests (MODULE-PLAN S1)
+  // action -> handler for module-specific requests
   const routes = new Map();
   const logger = options.logger || null;
   const criticalKeys = options.criticalKeys || [];
@@ -208,7 +212,7 @@ function createInstanceHub(options = {}) {
    * its own path to socketNotificationReceived; this hub's socket listener sees
    * the raw payload. The core's listener is registered before the helper starts,
    * so for the same message it runs first: keep its copy by requestId and use it
-   * when the socket listener handles the request (MODULE-PLAN S6).
+   * when the socket listener handles the request.
    */
   const coreCopies = new Map();
   const MAX_CORE_COPIES = 100;
@@ -241,7 +245,6 @@ function createInstanceHub(options = {}) {
   function envelope(identifier, action, data, error = null) {
     return shared.createEnvelope({
       identifier,
-      instanceId: identifier,
       action,
       ok: !error,
       data,
@@ -272,6 +275,7 @@ function createInstanceHub(options = {}) {
         stopInstance(instance);
         instances.delete(identifier);
         log("info", "instance released, no display left", { identifier });
+        options.onReleased?.(identifier);
       }
     },
   });
@@ -318,7 +322,7 @@ function createInstanceHub(options = {}) {
       });
       instance.lastError = failure;
       log("error", "fetch failed", { identifier, reason, message: failure.message });
-      // The lifecycle grows the backoff and schedules the retry itself (MODULE-PLAN S4).
+      // The lifecycle grows the backoff and schedules the retry itself.
       instance.lifecycle.markFetchFailed();
       broadcast(identifier, "FETCH_FAILED", null, failure);
     } finally {
@@ -378,6 +382,12 @@ function createInstanceHub(options = {}) {
     }
   }
 
+  function replyConfigured(identifier, config, reply) {
+    if (options.describe) {
+      reply(identifier, "CONFIGURED", options.describe(identifier, config));
+    }
+  }
+
   function configure(identifier, config, reply) {
     const existing = instances.get(identifier);
     if (existing) {
@@ -393,6 +403,7 @@ function createInstanceHub(options = {}) {
       if (differing.length > 0) {
         log("warn", "client config differs, the running config keeps precedence", { identifier, keys: differing });
       }
+      replyConfigured(identifier, existing.config, reply);
       if (existing.lastData !== undefined) {
         reply(identifier, "DATA", existing.lastData);
       } else if (existing.lastError) {
@@ -428,7 +439,7 @@ function createInstanceHub(options = {}) {
     instance.lifecycle = shared.createLifecycle({
       ...options.lifecycleOptions(instance.config),
       module: host,
-      logger,
+      logger: options.loggerFor?.(identifier) || logger,
       timers: options.timers,
       now: options.now,
       random: options.random,
@@ -439,6 +450,7 @@ function createInstanceHub(options = {}) {
     instances.set(identifier, instance);
     options.onConfigured?.(identifier, instance.config);
     log("info", "instance configured", { identifier });
+    replyConfigured(identifier, instance.config, reply);
     instance.lifecycle.start("configure");
   }
 

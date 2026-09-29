@@ -100,7 +100,7 @@ function createFakeIo() {
 }
 
 function request(identifier, action, data) {
-  return { identifier, instanceId: identifier, action, data };
+  return { identifier, action, data };
 }
 
 function startHub(overrides = {}) {
@@ -314,7 +314,7 @@ test("the registry reports clients and pause state per instance", async () => {
   const registry = createClientRegistry({
     io,
     namespace: MODULE,
-    keyOf: (payload) => payload?.instanceId || null,
+    keyOf: (payload) => payload?.identifier || null,
     onGone: (key) => gone.push(key),
     graceMs: 1000,
     timers: clock.timers,
@@ -322,8 +322,8 @@ test("the registry reports clients and pause state per instance", async () => {
 
   const a = io.connect("a");
   const b = io.connect("b");
-  a.send(REQUEST, { instanceId: "x" });
-  b.send(REQUEST, { instanceId: "x" });
+  a.send(REQUEST, { identifier: "x" });
+  b.send(REQUEST, { identifier: "x" });
   registry.setPaused("a", "x", true);
   assert.equal(registry.hasClients("x"), true);
   assert.equal(registry.isPaused("x"), false, "one display still shows it");
@@ -474,4 +474,101 @@ test("CONFIGURE uses the payload with the secrets the core resolved, not the raw
 
   assert.equal(fetches.length, 1);
   assert.equal(fetches[0].config.password, "real-password");
+});
+
+test("describe answers CONFIGURED before the first DATA, for a new and for a second client", async () => {
+  const order = [];
+  const { io, broadcasts } = startHub({
+    describe: (identifier, config) => {
+      order.push("CONFIGURED");
+      return { identifier, account: config.account };
+    },
+    fetch: async () => {
+      order.push("fetch");
+      return {};
+    },
+  });
+  const first = io.connect("s1");
+  first.send(REQUEST, request("m1", "CONFIGURE", { config: { account: "a" } }));
+  await settle();
+  assert.deepEqual(order, ["CONFIGURED", "fetch"], "a new instance is described before its first, maybe slow, fetch");
+  assert.equal(first.sent.find((m) => m.payload.action === "CONFIGURED").payload.data.account, "a");
+  assert.ok(broadcasts.some((b) => b.payload.action === "DATA"));
+
+  const second = io.connect("s2");
+  second.send(REQUEST, request("m1", "CONFIGURE", { config: { account: "a" } }));
+  await settle();
+  const actions = second.sent.map((m) => m.payload.action).filter((a) => a !== "INIT_REQUIRED");
+  assert.deepEqual(actions, ["CONFIGURED", "DATA"]);
+});
+
+test("describe is not called for a rejected or invalid config", async () => {
+  const { io } = startHub({
+    describe: () => ({}),
+    prepareConfig: (config) => {
+      if (config.invalid) {
+        throw new Error("invalid");
+      }
+      return config;
+    },
+  });
+  const invalid = io.connect("s1");
+  invalid.send(REQUEST, request("m1", "CONFIGURE", { config: { invalid: true } }));
+  await settle();
+  assert.ok(!invalid.sent.some((m) => m.payload.action === "CONFIGURED"));
+
+  io.connect("s2").send(REQUEST, request("m2", "CONFIGURE", { config: { account: "a" } }));
+  await settle();
+  const other = io.connect("s3");
+  other.send(REQUEST, request("m2", "CONFIGURE", { config: { account: "b" } }));
+  await settle();
+  assert.ok(other.sent.some((m) => m.payload.action === "CONFIG_REJECTED"));
+  assert.ok(!other.sent.some((m) => m.payload.action === "CONFIGURED"));
+});
+
+test("onReleased is called once the grace period of an instance has passed", async () => {
+  const released = [];
+  const { io, clock } = startHub({ onReleased: (identifier) => released.push(identifier) });
+  const socket = io.connect("s1");
+  socket.send(REQUEST, request("m1", "CONFIGURE", { config: { account: "a" } }));
+  await settle();
+
+  socket.disconnect();
+  await clock.advance(59 * 1000);
+  assert.deepEqual(released, []);
+  await clock.advance(2 * 1000);
+  assert.deepEqual(released, ["m1"]);
+});
+
+test("CONFIG_INVALID keeps the details the config check attached to its error", async () => {
+  const { io } = startHub({
+    prepareConfig: () => {
+      const error = new Error("a\nb");
+      error.details = { errors: ["a", "b"], warnings: ["w"] };
+      throw error;
+    },
+  });
+  const socket = io.connect("s1");
+  socket.send(REQUEST, request("m1", "CONFIGURE", { config: {} }));
+  await settle();
+
+  const { error } = socket.sent.find((m) => m.payload.action === "CONFIG_INVALID").payload;
+  assert.deepEqual(error.details.errors, ["a", "b"]);
+  assert.deepEqual(error.details.warnings, ["w"]);
+  assert.equal(error.details.identifier, "m1");
+});
+
+test("loggerFor gives each instance's lifecycle its own logger", async () => {
+  const lines = [];
+  const loggerFor = (identifier) => ({
+    debug: (message) => lines.push(`${identifier}: ${message}`),
+    info() {},
+    warn() {},
+    error() {},
+  });
+  const { io } = startHub({ loggerFor, fetch: async () => ({}), isFailure: () => true });
+  io.connect("s1").send(REQUEST, request("m1", "CONFIGURE", { config: { account: "a" } }));
+  await settle();
+
+  assert.ok(lines.some((line) => line.startsWith("m1: [lifecycle] fetch failed")));
 });
