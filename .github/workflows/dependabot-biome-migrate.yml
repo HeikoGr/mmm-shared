@@ -1,0 +1,84 @@
+name: Dependabot Biome Migrate
+
+# Dependabot bumps @biomejs/biome in package.json, but not biome.jsonc (options Biome renamed or
+# removed; the $schema points at node_modules and follows the bump by itself). This runs
+# `biome migrate --write` on such a PR and pushes the result.
+#
+# The push must come from RELEASE_TOKEN: a push made with GITHUB_TOKEN starts no workflows, so CI
+# would never run on the new head and the auto-merge would wait forever. Because this runs on a
+# Dependabot PR, the secret has to exist as a *Dependabot* secret too (Settings > Secrets and
+# variables > Dependabot).
+#
+# The migration runs the Biome binary the PR just updated - third-party code. It must never see the
+# write token: the checkout keeps no credentials in .git/config, and RELEASE_TOKEN only exists in
+# the environment of the push step, after Biome has finished.
+
+on:
+  pull_request:
+    branches:
+      - develop
+    paths:
+      - package.json
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  detect:
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    outputs:
+      biome: ${{ contains(steps.metadata.outputs.dependency-names, '@biomejs/biome') }}
+
+    steps:
+      # Only a Biome bump can need a migration; other npm updates touch package.json too.
+      - name: Fetch Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v3
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  migrate:
+    needs: detect
+    if: needs.detect.outputs.biome == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the PR branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22.22.2"
+          cache: npm
+
+      # No lifecycle scripts: the PR content is third-party.
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Migrate the Biome configuration
+        run: npx --no-install biome migrate --write
+
+      - name: Commit the migration
+        env:
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          if git diff --quiet; then
+            echo "biome.jsonc is up to date."
+            exit 0
+          fi
+          if [ -z "$RELEASE_TOKEN" ]; then
+            echo "::error::biome.jsonc needs a migration, but no RELEASE_TOKEN (Dependabot secret) is set; run 'npx biome migrate --write' on this branch."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "build(deps): migrate the Biome configuration"
+          git push "https://x-access-token:${RELEASE_TOKEN}@github.com/${REPOSITORY}.git" "HEAD:${BRANCH}"
