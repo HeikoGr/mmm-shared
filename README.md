@@ -33,7 +33,7 @@ MagicMirror-Core **nicht** garantiert:
 | 2 | Freshness-Guard | `resume()` holt nur bei `dataAge >= updateInterval` |
 | 3 | Idempotenz | Mehrfaches `suspend()`/`resume()` bleibt folgenlos |
 | 4 | Guard im Timer-Callback | nicht nur beim Aufsetzen des Timers |
-| 5 | Deferred Init | Modul startet versteckt → Retry mit Limit |
+| 5 | Versteckter Start | ohne `backgroundRefresh` holt ein versteckt gestartetes Modul erst beim `resume()` |
 | 6 | Tageswechsel | wird ueber einen Suspend hinweg erkannt |
 | 7 | Visuelle Arbeit getrennt | `onVisible`/`onVisibleTick` erzeugen nie Traffic |
 | 8 | Jitter + `quietHours` | gestaffelte Timer, nachts kein Polling |
@@ -99,21 +99,20 @@ socketNotificationReceived(notification, payload) {
 | `suspend(reason?)` / `resume(reason?)` | Direkt aus den Core-Callbacks |
 | `markDataReceived(ts?)` | Frische Daten angekommen — setzt den Freshness-Guard |
 | `markFetchFailed()` | Fehlgeschlagener Fetch — erhoeht den Backoff |
-| `requestFetch(reason, { force })` | Fetch ausserhalb des Timers (z. B. Nutzeraktion) |
 | `reportSessionState(reason?)` | Aktuellen Zustand (`active`/`paused`) erneut an `onSessionState` melden, auch ohne Wechsel — z. B. nach `INIT_REQUIRED` |
 | `render(speed?)` | `updateDom()` mit Aussetzer, solange versteckt; wird beim `resume()` nachgeholt |
-| `isSuspended()` / `isVisible()` / `getDataAge()` | Abfragen |
+| `isSuspended()` / `getDataAge()` | Abfragen |
 | `stop()` | Alle Timer abraeumen (Tests, eigenes Teardown) |
-| `getState()` | Diagnose-Snapshot |
+| `getState()` | Diagnose-Snapshot (Tests, Fehlersuche; kein Modul liest ihn im Betrieb) |
 
 ### Optionen
 
 `module` (Pflicht), `logger` (Objekt mit `debug/info/warn/error`) **oder** `log`
-(Funktion `(level, message)`), `updateInterval` / `getUpdateInterval`,
+(Funktion `(level, message)`), `updateInterval` (Zahl oder Funktion),
 `minUpdateInterval`, `jitterRatio`, `backgroundRefresh`, `quietHours`,
 `anchorHour`, `retryInterval`, `maxRetryInterval`, `onFetch`,
 `onVisible`, `onHidden`, `onVisibleTick` + `visibleTickInterval`, `onDayChange`,
-`onSessionState`, `deferredInit`, `getDayKey`, sowie `now`, `timers` und
+`onSessionState`, `getDayKey`, sowie `now`, `timers` und
 `random` zur Injektion in Tests.
 
 ### Retry nach Fehlschlag (ab 0.3.0)
@@ -137,7 +136,7 @@ Die Backend-Haelfte des Musters „Config einmal, Backend besitzt die Kadenz"
 
 | Funktion | Zweck |
 |---|---|
-| `createClientRegistry({ io, namespace, keyOf, onConnect, onMessage, onGone, graceMs })` | ordnet Browser-Sockets den Modulinstanzen zu; Instanz ohne Socket wird nach `graceMs` (10 min) freigegeben; Pause-Zustand pro Socket (`setPaused`, `isPaused`) |
+| `createClientRegistry({ io, namespace, keyOf, onConnect, onMessage, onGone, graceMs })` | ordnet Browser-Sockets den Modulinstanzen zu; Instanz ohne Socket wird nach `graceMs` (10 min) freigegeben; Pause-Zustand pro Socket (`setPaused`, `isPaused`); `hasClients(key)` zur Diagnose |
 | `createInstanceHub({ moduleName, sendSocketNotification, fetch, lifecycleOptions, criticalKeys, prepareConfig, isFailure, onConfigured, onReleased, describe })` | ein `createLifecycle()` pro Instanz im Backend |
 | `formatLogEntry(entry)` | macht aus einem strukturierten `createLogger`-Eintrag eine Zeile `[identifier] message {context}`; für eine Log-Senke im `node_helper`, die MagicMirrors `Log` aufruft |
 
@@ -156,7 +155,8 @@ Protokoll: Frontend sendet `CONFIGURE` (einmal, `data.config`) und
 `INIT_REQUIRED` (bei jeder neuen Verbindung und bei unbekannter Instanz) als
 `<Modul>_EVENT`. `hub.route(action, handler)` bedient modulspezifische Requests
 (z. B. Schreibzugriffe) mit Instanz-Config, `RESPONSE`/`ERROR` und
-`CONFIG_MISSING`. Ein Fetch pro Instanz; Wuensche waehrend eines laufenden
+`CONFIG_MISSING`; `RESPONSE` ist die Antwort auf genau diesen Request (ein Frontend, das nach einem
+Schreibzugriff ohnehin neue Daten bekommt, braucht nur `ERROR` auszuwerten). Ein Fetch pro Instanz; Wuensche waehrend eines laufenden
 Fetches laufen danach als Follow-up.
 
 Secrets: Mit `hideConfigSecrets: true` loest MagicMirror `**SECRET_…**`-Platzhalter
