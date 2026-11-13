@@ -133,17 +133,6 @@
       info: (message, context) => write("info", message, context),
       warn: (message, context) => write("warn", message, context),
       error: (message, context) => write("error", message, context),
-      child(extraIdentifier) {
-        return createLogger({
-          moduleName,
-          identifier: extraIdentifier || identifier,
-          getLevel,
-          structured,
-          redact,
-          redactedKeys,
-          consoleRef: sink,
-        });
-      },
     };
   }
 
@@ -151,7 +140,6 @@
     return {
       REQUEST: `${moduleName}_REQUEST`,
       CONFIG: `${moduleName}_CONFIG`,
-      LIFECYCLE: `${moduleName}_LIFECYCLE`,
       RESPONSE: `${moduleName}_RESPONSE`,
       EVENT: `${moduleName}_EVENT`,
       ERROR: `${moduleName}_ERROR`,
@@ -199,17 +187,6 @@
             action: "CONFIG",
             ok: true,
             data: config,
-          }),
-        );
-      },
-      sendLifecycle(state) {
-        sendSocketNotification(
-          notifications.LIFECYCLE,
-          createEnvelope({
-            identifier,
-            action: state,
-            ok: true,
-            data: null,
           }),
         );
       },
@@ -278,8 +255,6 @@
   const LIFECYCLE_DEFAULTS = {
     minUpdateInterval: 5000,
     jitterRatio: 0.1,
-    deferredInitIntervalMs: 5000,
-    deferredInitMaxAttempts: 12,
     retryInterval: 60000,
     maxRetryInterval: 30 * 60000,
   };
@@ -426,7 +401,7 @@
    *   3. Idempotency           — repeated suspend()/resume() (and resume without
    *                              suspend) stay side-effect free
    *   4. Guarded timer callback— the guard sits inside the tick, not only when arming
-   *   5. Deferred init         — a module that starts hidden retries with a limit
+   *   5. Hidden start          — without backgroundRefresh the first fetch waits for resume()
    *   6. Day-change hook       — detected across a suspend
    *   7. Visual work separated — onVisible/onVisibleTick never cause traffic
    *   8. Jitter + quiet hours  — staggered timers, no polling at night
@@ -437,7 +412,6 @@
    * @param {object} [options.logger] - Shared logger ({debug,info,warn,error}) for diagnostics
    * @param {Function} [options.log] - Alternative to `logger`: a `(level, message)` function
    * @param {number|Function} [options.updateInterval] - Fetch interval in ms (0 disables the timer)
-   * @param {Function} [options.getUpdateInterval] - Late-bound alternative to updateInterval
    * @param {number} [options.minUpdateInterval] - Lower clamp for the interval
    * @param {number} [options.jitterRatio] - Relative jitter applied to the periodic timer
    * @param {boolean} [options.backgroundRefresh] - Keep fetching while hidden (default true)
@@ -452,8 +426,6 @@
    * @param {number} [options.visibleTickInterval] - Interval for onVisibleTick
    * @param {Function} [options.onDayChange] - Called when the local date rolled over
    * @param {Function} [options.onSessionState] - Called with ('active'|'paused', reason)
-   * @param {{run: Function, isPending?: Function, intervalMs?: number, maxAttempts?: number}} [options.deferredInit]
-   *        Initialization handshake that replaces the first fetch when present
    * @param {Function} [options.getDayKey] - Custom day key provider
    * @param {Function} [options.now] - Clock injection for tests
    * @param {object} [options.timers] - { setTimeout, clearTimeout } injection for tests
@@ -496,8 +468,6 @@
     let fetchTimer = null;
     let visibleTimer = null;
     let visibleTickDueAt = null;
-    let deferredInitTimer = null;
-    let deferredInitAttempts = 0;
     let lastDataReceivedAt = null;
     let lastFetchStartedAt = null;
     let awaitingResponse = false;
@@ -539,12 +509,7 @@
     }
 
     function resolveUpdateInterval() {
-      const raw =
-        typeof options.getUpdateInterval === "function"
-          ? options.getUpdateInterval()
-          : typeof options.updateInterval === "function"
-            ? options.updateInterval()
-            : options.updateInterval;
+      const raw = typeof options.updateInterval === "function" ? options.updateInterval() : options.updateInterval;
       const value = Number(raw);
       if (!Number.isFinite(value) || value <= 0) {
         return 0;
@@ -632,13 +597,9 @@
      * data — but the rate limit and the error backoff always apply, otherwise a
      * broken backend would turn every Carousel resume into a new request.
      */
-    function canFetch(reason, force) {
+    function canFetch(reason) {
       if (typeof options.onFetch !== "function") {
         return false;
-      }
-
-      if (force) {
-        return true;
       }
 
       if (lastFetchStartedAt !== null) {
@@ -672,8 +633,8 @@
       return true;
     }
 
-    function runFetch(reason, force = false) {
-      if (!canFetch(reason, force)) {
+    function runFetch(reason) {
+      if (!canFetch(reason)) {
         return false;
       }
 
@@ -692,91 +653,6 @@
         lastDataReceivedAt,
       });
       return true;
-    }
-
-    function deferredInitPending() {
-      const config = options.deferredInit;
-      if (!config || typeof config.run !== "function") {
-        return false;
-      }
-
-      return typeof config.isPending === "function" ? config.isPending() === true : true;
-    }
-
-    /**
-     * Trigger the module's initial work: the init handshake when one is
-     * configured, the first fetch otherwise.
-     */
-    function runInitialWork(reason) {
-      const config = options.deferredInit;
-      if (config && typeof config.run === "function") {
-        if (!deferredInitPending()) {
-          return false;
-        }
-
-        safeCall("deferredInit.run", config.run, reason);
-        return true;
-      }
-
-      return runFetch(reason);
-    }
-
-    function stopDeferredInitTimer() {
-      if (deferredInitTimer !== null) {
-        clearTimer(deferredInitTimer);
-        deferredInitTimer = null;
-      }
-    }
-
-    /**
-     * Retry the initial work while the module starts hidden (§3.4 start order).
-     * Bounded so a permanently hidden module stops polling its own visibility.
-     */
-    function scheduleDeferredInit(reason) {
-      if (!deferredInitPending() || deferredInitTimer !== null) {
-        return;
-      }
-
-      const config = options.deferredInit || {};
-      const intervalMs = Number.isFinite(config.intervalMs)
-        ? Math.max(1000, config.intervalMs)
-        : LIFECYCLE_DEFAULTS.deferredInitIntervalMs;
-      const maxAttempts = Number.isFinite(config.maxAttempts)
-        ? Math.max(1, config.maxAttempts)
-        : LIFECYCLE_DEFAULTS.deferredInitMaxAttempts;
-
-      const tick = () => {
-        deferredInitTimer = null;
-        if (!deferredInitPending()) {
-          return;
-        }
-
-        deferredInitAttempts += 1;
-
-        // The core is the truth here on purpose: a module can become visible
-        // without ever receiving a resume() callback (§3.4 start order).
-        if (!isHiddenByCore()) {
-          if (paused) {
-            paused = false;
-            notifySessionState("active", `${reason}-visible`);
-            markVisible(reason);
-            scheduleFetchTimer();
-          }
-
-          log("info", `[lifecycle] deferred init runs after ${deferredInitAttempts} attempt(s)`);
-          runInitialWork(`${reason}-retry-${deferredInitAttempts}`);
-          return;
-        }
-
-        if (deferredInitAttempts >= maxAttempts) {
-          log("warn", `[lifecycle] deferred init gave up after ${maxAttempts} attempts, waiting for resume()`);
-          return;
-        }
-
-        deferredInitTimer = setTimer(tick, intervalMs);
-      };
-
-      deferredInitTimer = setTimer(tick, intervalMs);
     }
 
     function stopRetryTimer() {
@@ -964,10 +840,9 @@
         scheduleFetchTimer();
 
         if (backgroundRefresh || !paused) {
-          runInitialWork(reason);
+          runFetch(reason);
         } else {
-          log("debug", "[lifecycle] module starts hidden, deferring initial work");
-          scheduleDeferredInit(`${reason}-hidden`);
+          log("debug", "[lifecycle] module starts hidden, first fetch on resume()");
         }
 
         return api;
@@ -983,7 +858,6 @@
         stopFetchTimer();
         stopRetryTimer();
         stopVisibleTimer();
-        stopDeferredInitTimer();
         markHidden("stop");
         started = false;
         paused = true;
@@ -1045,13 +919,6 @@
         notifySessionState("active", reason);
         markVisible(reason);
         checkDayChange(reason);
-
-        if (deferredInitPending()) {
-          stopDeferredInitTimer();
-          scheduleFetchTimer();
-          runInitialWork(`${reason}-init`);
-          return api;
-        }
 
         const interval = resolveUpdateInterval();
         const dataAge = getDataAge();
@@ -1124,17 +991,6 @@
       },
 
       /**
-       * Trigger a fetch outside the timer (user interaction, config change).
-       *
-       * @param {string} [reason] - Diagnostic reason
-       * @param {{force?: boolean}} [opts] - force bypasses quiet hours and the hidden guard
-       * @returns {boolean} True when onFetch ran
-       */
-      requestFetch(reason = "manual", opts = {}) {
-        return runFetch(reason, opts.force === true);
-      },
-
-      /**
        * Render through the lifecycle instead of calling updateDom() directly.
        * A hidden module skips the render (the core would still build the whole
        * DOM) and replays it on the next resume().
@@ -1157,9 +1013,6 @@
       },
 
       isSuspended,
-      isVisible() {
-        return !isSuspended();
-      },
       getDataAge,
 
       /** @returns {object} Diagnostic snapshot */
@@ -1180,8 +1033,6 @@
           retryTimerArmed: retryTimer !== null,
           fetchTimerArmed: fetchTimer !== null,
           visibleTimerArmed: visibleTimer !== null,
-          deferredInitArmed: deferredInitTimer !== null,
-          deferredInitAttempts,
           quietHoursActive: isQuietNow(),
           pendingRender: pendingRender !== null,
           dayKey: currentDayKey,
@@ -1201,7 +1052,6 @@
     createLogger,
     createErrorFactory,
     createEnvelope,
-    sanitizeForLogging,
     createLifecycle,
     stableStringify,
     parseClockToMinutes,
